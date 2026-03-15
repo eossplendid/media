@@ -1,32 +1,43 @@
 /**
  * @file sink_speaker.c
- * @brief Speaker sink (1 in, 0 out); uses tinyalsa for playback.
+ * @brief Speaker sink (1 in, 0 out).
+ *        优先 paplay 管道（与 paplay 完全同路径）；否则 libpulse -> libasound。
  */
 #include "media_core/node.h"
 #include "media_core/factory.h"
+#include "media_core/media_debug.h"
 #include "media_types.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 #ifdef __linux__
-#include <tinyalsa/pcm.h>
+#ifdef USE_PAPLAY_PIPE
+/* 无额外头文件，用 popen */
+#elif defined(USE_PULSE)
+#include <pulse/simple.h>
+#include <pulse/error.h>
+#elif defined(USE_ALSA)
+#include <alsa/asoundlib.h>
 #else
-#define PCM_OUT 0
-struct pcm_config { unsigned int channels; unsigned int rate; unsigned int period_size; unsigned int period_count; int format; };
-struct pcm { int dummy; };
-static struct pcm *pcm_open(unsigned int c, unsigned int d, unsigned int f, const struct pcm_config *cfg) { (void)c;(void)d;(void)f;(void)cfg; return NULL; }
-static struct pcm *pcm_open_by_name(const char *n, unsigned int f, const struct pcm_config *cfg) { (void)n;(void)f;(void)cfg; return NULL; }
-static int pcm_prepare(struct pcm *p) { (void)p; return 0; }
-static int pcm_start(struct pcm *p) { (void)p; return 0; }
-static int pcm_writei(struct pcm *p, const void *d, unsigned int n) { (void)p;(void)d;(void)n; return 0; }
-static int pcm_close(struct pcm *p) { (void)p; return 0; }
-static int pcm_is_ready(struct pcm *p) { (void)p; return 0; }
-enum pcm_format { PCM_FORMAT_S16_LE = 0 };
+#include <tinyalsa/pcm.h>
+#endif
 #endif
 
 typedef struct {
 #ifdef __linux__
+#ifdef USE_PAPLAY_PIPE
+    FILE *paplay_fp;
+#elif defined(USE_PULSE)
+    pa_simple *pa;
+#elif defined(USE_ALSA)
+    snd_pcm_t *pcm;
+#else
     struct pcm *pcm;
+#endif
 #endif
     uint32_t sample_rate;
     uint32_t channels;
@@ -37,20 +48,80 @@ static int sink_speaker_init(media_node_t *node, const node_config_t *config) {
     if (!p) return -1;
     p->sample_rate = config && config->sample_rate ? config->sample_rate : 48000;
     p->channels = config && config->channels ? config->channels : 1;
+
 #ifdef __linux__
+#ifdef USE_PAPLAY_PIPE
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "paplay --raw --format=s16le --channels=%u --rate=%u",
+             (unsigned)p->channels, (unsigned)p->sample_rate);
+    p->paplay_fp = popen(cmd, "w");
+    if (!p->paplay_fp) {
+        fprintf(stderr, "[sink_speaker] popen(paplay) failed\n");
+        return -1;
+    }
+#elif defined(USE_PULSE)
+    pa_sample_spec ss = {
+        .format = PA_SAMPLE_S16LE,
+        .rate = p->sample_rate,
+        .channels = (uint8_t)p->channels
+    };
+    int pa_err = 0;
+    p->pa = pa_simple_new(NULL, "media", PA_STREAM_PLAYBACK, NULL, "playback", &ss, NULL, NULL, &pa_err);
+    if (!p->pa) {
+        fprintf(stderr, "[sink_speaker] pa_simple_new failed: %s\n", pa_strerror(pa_err));
+        return -1;
+    }
+#elif defined(USE_ALSA)
+    int err = -1;
+    snd_pcm_hw_params_t *hw_params = NULL;
+    const char *devices[] = { "default", "pulse", "sysdefault:CARD=default", NULL };
+
+    for (int i = 0; devices[i]; i++) {
+        err = snd_pcm_open(&p->pcm, devices[i], SND_PCM_STREAM_PLAYBACK, 0);
+        if (err >= 0) break;
+    }
+    if (err < 0) {
+        fprintf(stderr, "[sink_speaker] snd_pcm_open failed: %s\n", snd_strerror(err));
+        return -1;
+    }
+
+    snd_pcm_hw_params_alloca(&hw_params);
+    snd_pcm_hw_params_any(p->pcm, hw_params);
+    snd_pcm_hw_params_set_access(p->pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    snd_pcm_hw_params_set_format(p->pcm, hw_params, SND_PCM_FORMAT_S16_LE);
+    snd_pcm_hw_params_set_channels(p->pcm, hw_params, p->channels);
+    snd_pcm_hw_params_set_rate_near(p->pcm, hw_params, &p->sample_rate, 0);
+    snd_pcm_uframes_t period_size = 1024;
+    int dir = 0;
+    snd_pcm_hw_params_set_period_size_near(p->pcm, hw_params, &period_size, &dir);
+    unsigned int periods = 4;
+    snd_pcm_hw_params_set_periods_near(p->pcm, hw_params, &periods, &dir);
+
+    err = snd_pcm_hw_params(p->pcm, hw_params);
+    if (err < 0) {
+        fprintf(stderr, "[sink_speaker] snd_pcm_hw_params failed: %s\n", snd_strerror(err));
+        snd_pcm_close(p->pcm);
+        p->pcm = NULL;
+        return -1;
+    }
+    snd_pcm_prepare(p->pcm);
+#else
+    /* TinyALSA fallback */
     struct pcm_config cfg = {0};
     cfg.channels = p->channels;
     cfg.rate = p->sample_rate;
     cfg.period_size = 1024;
     cfg.period_count = 4;
     cfg.format = PCM_FORMAT_S16_LE;
-    /* Prefer "default" so playback goes to system default output (e.g. PulseAudio) */
     p->pcm = pcm_open_by_name("default", PCM_OUT, &cfg);
     if (!p->pcm || !pcm_is_ready(p->pcm))
         p->pcm = pcm_open(0, 0, PCM_OUT, &cfg);
-    if (!p->pcm || !pcm_is_ready(p->pcm)) return -1;
-    if (pcm_prepare(p->pcm) != 0) return -1;
-    if (pcm_start(p->pcm) != 0) return -1;
+    if (!p->pcm || !pcm_is_ready(p->pcm)) {
+        fprintf(stderr, "[sink_speaker] TinyALSA pcm_open failed\n");
+        return -1;
+    }
+    if (pcm_prepare(p->pcm) != 0 || pcm_start(p->pcm) != 0) return -1;
+#endif
 #endif
     return 0;
 }
@@ -70,16 +141,57 @@ static int sink_speaker_process(media_node_t *node) {
     media_buffer_t *buf = node->input_buffers[0];
     if (!p) return 0;
     if (!buf || !buf->data || buf->size == 0) return 0;
+
 #ifdef __linux__
-    if (p->pcm) {
-        unsigned int frames = (unsigned int)(buf->size / (p->channels * 2));
-        if (frames > 0) {
-            int w = pcm_writei(p->pcm, buf->data, frames);
-            /* Restart on underrun (e.g. -EPIPE) so playback continues */
-            if (w < 0 && pcm_prepare(p->pcm) == 0)
-                pcm_start(p->pcm);
-        }
+    unsigned int frames = (unsigned int)(buf->size / (p->channels * 2));
+    if (frames == 0) return 0;
+
+#ifdef USE_PAPLAY_PIPE
+    if (p->paplay_fp) {
+        size_t n = fwrite(buf->data, 1, buf->size, p->paplay_fp);
+        if (n != buf->size)
+            fprintf(stderr, "[sink_speaker] fwrite paplay: %zu/%zu\n", n, buf->size);
+        else if (media_debug_enabled())
+            fprintf(stderr, "[sink_speaker] wrote %u frames (buf=%zu)\n", frames, buf->size);
+        fflush(p->paplay_fp);
+        /* 实时 pacing：等待本帧播放时长，避免 pipeline 过快结束导致 paplay 未及播放 */
+        { unsigned long us = (unsigned long)frames * 1000000UL / (p->sample_rate ? p->sample_rate : 48000);
+          if (us > 0 && us < 500000) usleep((useconds_t)us); }
     }
+#elif defined(USE_PULSE)
+    if (p->pa) {
+        int pa_err = 0;
+        if (pa_simple_write(p->pa, buf->data, buf->size, &pa_err) < 0) {
+            fprintf(stderr, "[sink_speaker] pa_simple_write error: %s\n", pa_strerror(pa_err));
+        } else if (media_debug_enabled()) {
+            fprintf(stderr, "[sink_speaker] wrote %u frames (buf=%zu)\n", frames, buf->size);
+        }
+        { unsigned long us = (unsigned long)frames * 1000000UL / (p->sample_rate ? p->sample_rate : 48000);
+          if (us > 0 && us < 500000) usleep((useconds_t)us); }
+    }
+#elif defined(USE_ALSA)
+    if (p->pcm) {
+        snd_pcm_sframes_t w = snd_pcm_writei(p->pcm, buf->data, frames);
+        if (w == -EPIPE) {
+            snd_pcm_prepare(p->pcm);
+            w = snd_pcm_writei(p->pcm, buf->data, frames);
+        }
+        if (w == -ESTRPIPE) {
+            snd_pcm_prepare(p->pcm);
+            w = snd_pcm_writei(p->pcm, buf->data, frames);
+        }
+        if (media_debug_enabled()) fprintf(stderr, "[sink_speaker] wrote %ld/%u frames (buf=%zu)\n", (long)w, frames, buf->size);
+        if (w < 0) fprintf(stderr, "[sink_speaker] snd_pcm_writei error: %s\n", snd_strerror((int)w));
+        else { unsigned long us = (unsigned long)frames * 1000000UL / (p->sample_rate ? p->sample_rate : 48000);
+          if (us > 0 && us < 500000) usleep((useconds_t)us); }
+    }
+#else
+    if (p->pcm) {
+        int w = pcm_writei(p->pcm, buf->data, frames);
+        if (w < 0 && pcm_prepare(p->pcm) == 0)
+            pcm_start(p->pcm);
+    }
+#endif
 #endif
     return 0;
 }
@@ -93,7 +205,24 @@ static void sink_speaker_destroy(media_node_t *node) {
     sink_speaker_priv_t *p = (sink_speaker_priv_t *)node->private_data;
     if (p) {
 #ifdef __linux__
+#ifdef USE_PAPLAY_PIPE
+        if (p->paplay_fp) {
+            pclose(p->paplay_fp);
+        }
+#elif defined(USE_PULSE)
+        if (p->pa) {
+            int pa_err = 0;
+            pa_simple_drain(p->pa, &pa_err);
+            pa_simple_free(p->pa);
+        }
+#elif defined(USE_ALSA)
+        if (p->pcm) {
+            snd_pcm_drain(p->pcm);
+            snd_pcm_close(p->pcm);
+        }
+#else
         if (p->pcm) pcm_close(p->pcm);
+#endif
 #endif
         free(p);
     }

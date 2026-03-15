@@ -1,4 +1,5 @@
 build
+.fetchcontent
 *.o
 *.d
 tags

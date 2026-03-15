@@ -11,6 +11,7 @@
 ## 依赖
 
 - **TinyALSA**：从 GitHub [tinyalsa/tinyalsa](https://github.com/tinyalsa/tinyalsa) 通过 CMake FetchContent 自动下载（v2.0.0），仅编译 PCM 相关源文件。
+- **MiniMP3**：从 GitHub [lieff/minimp3](https://github.com/lieff/minimp3) 通过 FetchContent 自动下载，用于 MP3 解码（CC0 许可）。
 - **Linux**：ALSA 设备（麦克风/扬声器）需在 Linux 下使用；可选链接 `libasound`（由 CMake 检测）。
 
 ## 构建
@@ -21,11 +22,24 @@ cmake ..
 make
 ```
 
+**若 CMake 在 FetchContent 阶段卡住**（常见于 WSL 代理未正确配置时）：
+```bash
+./scripts/download_minimp3.sh   # 先下载 minimp3 到 third_party
+./build.sh                      # 再构建（会优先使用本地 minimp3）
+```
+
+**若出现 `curl 16 Error in the HTTP2 framing layer`**（WSL 下 git clone GitHub 常见）：
+```bash
+git config --global http.version HTTP/1.1   # 禁用 HTTP/2，改用 HTTP/1.1
+```
+然后删除 `.fetchcontent` 和 `build` 后重新 `./build.sh`。
+
 生成的可执行文件在 `build/demo/`：
 
 - `mic_to_wav [output.wav]` — 麦克风录音为 WAV（默认 5 秒）。使用 ALSA 采集，WSL 需配置 PulseAudio，详见 [docs/WSL_MICROPHONE.md](docs/WSL_MICROPHONE.md)
 - `mic_to_speaker` — 麦克风直通扬声器（10 秒）
 - `mix_to_speaker [file.wav]` — 本地 WAV(48k) + 麦克风(16k) 经重采样与混音后送扬声器（15 秒）
+- `file_to_speaker [path]` — 读取媒体文件，自动解析格式（WAV/MP3），解码并播放。默认 `media/wifi_no.mp3`。需将 MP3 文件放入 `media/` 目录
 
 ## 接口示例
 
@@ -86,11 +100,17 @@ stream/
 │   └── pipeline_internal.h
 ├── nodes/
 │   ├── source_mic/
-│   ├── source_file/
+│   ├── source_file/      # 支持 WAV、MP3、OGG 格式检测
 │   ├── sink_wav/
 │   ├── sink_speaker/
 │   ├── filter_resampler/
-│   └── filter_mixer/
+│   ├── filter_mixer/
+│   ├── demuxer_mp3/      # MP3 解复用（跳过 ID3）
+│   ├── demuxer_ogg/      # OGG 解复用（待 libopusfile）
+│   ├── decoder_mp3/     # MP3 解码（minimp3）
+│   ├── decoder_opus/    # Opus 解码（待 libopus）
+│   ├── encoder_mp3/     # MP3 编码（待 LAME/Shine）
+│   └── muxer_mp3/       # MP3 复用
 └── demo/
     ├── mic_to_wav.c
     ├── mic_to_speaker.c

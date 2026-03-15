@@ -21,6 +21,14 @@ typedef enum {
     MEDIA_FORMAT_UNKNOWN
 } media_format_t;
 
+/** Codec / container type for encoded streams */
+typedef enum {
+    MEDIA_CODEC_NONE = 0,    /* PCM / raw */
+    MEDIA_CODEC_MP3,
+    MEDIA_CODEC_OPUS,
+    MEDIA_CODEC_UNKNOWN
+} media_codec_t;
+
 /** Capabilities / format descriptor for a port */
 typedef struct media_caps {
     uint32_t sample_rate;
@@ -28,6 +36,7 @@ typedef struct media_caps {
     media_format_t format;
     uint32_t bytes_per_sample;  /* derived: e.g. 2 for S16 */
     uint32_t frame_ms;          /* 帧长(ms)，0=未指定/灵活，用于 prepare 协商 */
+    media_codec_t codec;       /* 编码格式，PCM 时为 MEDIA_CODEC_NONE */
 } media_caps_t;
 
 /** Timestamp in microseconds (optional for sync) */

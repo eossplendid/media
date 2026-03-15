@@ -1,13 +1,15 @@
-# WSL 下使用 PC 麦克风
+# WSL 下使用 PC 麦克风与扬声器
 
-WSL2 默认无内核声卡，需通过 PulseAudio 获取 Windows 麦克风数据。
+WSL2 默认无内核声卡，需通过 PulseAudio 获取 Windows 麦克风/扬声器。
 
 ## 1. 安装依赖（WSL Ubuntu）
 
 ```bash
 sudo apt update
-sudo apt install -y libasound2 libasound2-plugins pulseaudio
+sudo apt install -y libasound2 libasound2-plugins pulseaudio libpulse-dev
 ```
+
+`libpulse-dev` 用于 sink_speaker 的 PulseAudio 后端（与 paplay 同路径，WSL 下更可靠）。
 
 ## 2. 配置 PulseAudio 连接 Windows
 
@@ -68,3 +70,17 @@ arecord -d 3 -f S16_LE -r 16000 -c 1 test.wav
 ```
 
 若 `arecord` 能录音，`mic_to_wav --alsa` 应可正常工作。
+
+## 扬声器播放 (file_to_speaker 等)
+
+sink_speaker 后端优先级：**paplay 管道** → libpulse → libasound。若 `paplay` 在 PATH 中，会通过 `popen("paplay --raw ...")` 管道输出 PCM，与 paplay 完全同路径，WSL 下最可靠。
+
+若 paplay 有声音但 file_to_speaker 无声音，请确保 paplay 可用后重新编译：
+
+```bash
+which paplay   # 确认在 PATH 中
+cd ~/workspace/media && rm -rf build && ./build.sh
+./build/demo/file_to_speaker ./wifi_no.mp3
+```
+
+cmake 应显示 `sink_speaker: using paplay pipe`。

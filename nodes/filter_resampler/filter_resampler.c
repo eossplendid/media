@@ -4,9 +4,11 @@
  */
 #include "media_core/node.h"
 #include "media_core/factory.h"
+#include "media_core/media_debug.h"
 #include "media_types.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 typedef struct {
     uint32_t rate_in;
@@ -69,7 +71,8 @@ static int resampler_process(media_node_t *node) {
     media_buffer_t *in_buf = node->input_buffers[0];
     if (!p) return 0;
     if (!in_buf || !in_buf->data || in_buf->size == 0) return 0;
-    if (p->rate_in == 0 && in_buf->caps.sample_rate) {
+    /* 优先使用上游实际输出的采样率（decoder 等运行时才确定），prepare 时的 get_caps 可能返回默认值 */
+    if (in_buf->caps.sample_rate) {
         p->rate_in = in_buf->caps.sample_rate;
         p->channels = in_buf->caps.channels ? in_buf->caps.channels : 1;
         if (p->rate_out) p->ratio = (double)p->rate_out / (double)p->rate_in;
@@ -90,6 +93,7 @@ static int resampler_process(media_node_t *node) {
     out_buf->size = out_size;
     /* Pipeline frees output_buffers at end of each iteration */
     node->output_buffers[0] = out_buf;
+    if (media_debug_enabled()) fprintf(stderr, "[filter_resampler] %zu->%zu frames %u->%u Hz\n", in_frames, out_frames, p->rate_in, p->rate_out);
     return 0;
 }
 

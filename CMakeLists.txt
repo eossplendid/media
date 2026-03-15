@@ -3,13 +3,47 @@ project(stream C CXX)
 
 set(CMAKE_C_STANDARD 11)
 
+# 避免 FetchContent 无限等待（网络/代理问题时常卡住）
+set(FETCHCONTENT_TIMEOUT 90)
+set(FETCHCONTENT_QUIET OFF)
+# 缓存到项目根目录，rm -rf build 后不重复 clone
+set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/.fetchcontent)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+
 # TinyALSA from GitHub: fetch and build only PCM library (avoid their version script)
 include(FetchContent)
 FetchContent_Declare(tinyalsa
   GIT_REPOSITORY https://github.com/tinyalsa/tinyalsa.git
   GIT_TAG v2.0.0
+  GIT_SHALLOW TRUE
 )
 FetchContent_Populate(tinyalsa)
+
+# MiniMP3: 优先使用本地完整文件（>1000行），否则 FetchContent
+set(_minimp3_local "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minimp3/minimp3.h")
+if(EXISTS "${_minimp3_local}")
+  file(STRINGS "${_minimp3_local}" _minimp3_lines)
+  list(LENGTH _minimp3_lines _minimp3_linecount)
+  if(_minimp3_linecount GREATER 1000)
+    set(minimp3_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/minimp3")
+    message(STATUS "Using local minimp3: ${minimp3_SOURCE_DIR} (${_minimp3_linecount} lines)")
+  else()
+    message(STATUS "Local minimp3 incomplete (${_minimp3_linecount} lines), using FetchContent")
+    FetchContent_Declare(minimp3
+      GIT_REPOSITORY https://github.com/lieff/minimp3.git
+      GIT_TAG master
+      GIT_SHALLOW TRUE
+    )
+    FetchContent_Populate(minimp3)
+  endif()
+else()
+  FetchContent_Declare(minimp3
+    GIT_REPOSITORY https://github.com/lieff/minimp3.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_Populate(minimp3)
+endif()
 add_library(tinyalsa STATIC
   ${tinyalsa_SOURCE_DIR}/src/pcm.c
   ${tinyalsa_SOURCE_DIR}/src/pcm_hw.c
@@ -47,6 +81,12 @@ add_subdirectory(nodes/sink_speaker)
 add_subdirectory(nodes/filter_resampler)
 add_subdirectory(nodes/filter_frame_adapter)
 add_subdirectory(nodes/filter_mixer)
+add_subdirectory(nodes/decoder_mp3)
+add_subdirectory(nodes/demuxer_mp3)
+add_subdirectory(nodes/decoder_opus)
+add_subdirectory(nodes/demuxer_ogg)
+add_subdirectory(nodes/encoder_mp3)
+add_subdirectory(nodes/muxer_mp3)
 
 # Demos
 add_subdirectory(demo)

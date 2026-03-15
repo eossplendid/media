@@ -17,3 +17,8 @@ target_link_libraries(mix_to_speaker PRIVATE media_core source_mic source_file s
 add_executable(dual_file_to_speaker dual_file_to_speaker.c)
 target_include_directories(dual_file_to_speaker PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(dual_file_to_speaker PRIVATE media_core source_file sink_speaker filter_mixer filter_resampler)
+
+# file_to_speaker: 自动解析格式(WAV/MP3)，解码并播放
+add_executable(file_to_speaker file_to_speaker.c)
+target_include_directories(file_to_speaker PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(file_to_speaker PRIVATE media_core source_file sink_speaker demuxer_mp3 decoder_mp3 filter_resampler)

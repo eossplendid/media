@@ -7,6 +7,7 @@
 #include "../../include/media_core/factory.h"
 #include "../../include/media_core/link.h"
 #include "../../include/media_core/node.h"
+#include "../../include/media_core/media_debug.h"
 #include "pipeline_internal.h"
 #include <string.h>
 #include <stdlib.h>
@@ -95,6 +96,9 @@ static int topo_order(const pipeline_t *pipe, int *order) {
     return out;
 }
 
+/* Copy upstream output buffers to this node's input buffers per links */
+static void feed_inputs(pipeline_t *pipe, media_node_t *node, const char *node_id);
+
 /* 判断节点是否为 sink（无出边） */
 static int is_sink_node(const pipeline_t *pipe, int node_idx) {
     const char *nid = pipe->node_ids[node_idx];
@@ -130,7 +134,6 @@ static int pull_chain(pipeline_t *pipe, int to_idx) {
     return 0;
 }
 
-/* Copy upstream output buffers to this node's input buffers per links */
 static void feed_inputs(pipeline_t *pipe, media_node_t *node, const char *node_id) {
     for (int p = 0; p < node->num_input_ports; p++)
         node->input_buffers[p] = NULL;
@@ -341,15 +344,25 @@ int pipeline_start(pipeline_t *pipe) {
     int n = topo_order(pipe, order);
     if (n != pipe->num_nodes) return -1;
 
+    if (media_debug_enabled()) {
+        fprintf(stderr, "[pipeline] nodes=%d topo=", pipe->num_nodes);
+        for (int i = 0; i < n; i++) fprintf(stderr, "%s%s", pipe->node_ids[order[i]], i < n-1 ? "->" : "");
+        fprintf(stderr, "\n");
+    }
+
     /* Init all nodes */
     for (int i = 0; i < pipe->num_nodes; i++) {
         media_node_t *node = pipe->nodes[i];
         if (node->desc && node->desc->ops && node->desc->ops->init) {
             int r = node->desc->ops->init(node, &pipe->node_configs[i]);
-            if (r != 0) return r;
+            if (r != 0) {
+                if (media_debug_enabled()) fprintf(stderr, "[pipeline] init failed: %s\n", pipe->node_ids[i]);
+                return r;
+            }
         }
     }
 
+    if (media_debug_enabled()) fprintf(stderr, "[pipeline] all nodes inited, starting loop\n");
     pipe->running = 1;
     int tick = 0;
 
@@ -389,9 +402,13 @@ int pipeline_start(pipeline_t *pipe) {
                 feed_inputs(pipe, node, nid);
                 if (node->desc && node->desc->ops && node->desc->ops->process) {
                     int r = node->desc->ops->process(node);
-                    if (r != 0) { pipe->running = 0; return r; }
+                    if (r != 0) {
+                        if (media_debug_enabled()) fprintf(stderr, "[pipeline] tick=%d node=%s process returned %d\n", tick, nid, r);
+                        pipe->running = 0; return r;
+                    }
                 }
             }
+            if (media_debug_enabled() && tick > 0 && tick % 100 == 0) fprintf(stderr, "[pipeline] tick=%d\n", tick);
             tick++;
             for (int i = 0; i < pipe->num_nodes; i++) {
                 media_node_t *node = pipe->nodes[i];
