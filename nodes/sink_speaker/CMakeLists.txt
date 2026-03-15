@@ -1,0 +1,6 @@
+add_library(sink_speaker STATIC sink_speaker.c)
+target_include_directories(sink_speaker PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src/media_core)
+target_link_libraries(sink_speaker PUBLIC media_core tinyalsa)
+if(UNIX AND NOT APPLE)
+  target_link_libraries(sink_speaker PUBLIC asound)
+endif()

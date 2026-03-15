@@ -1,0 +1,183 @@
+" ============================================================
+" Vim 开发环境：左侧文件列表、右侧函数列表、ctags/cscope 跳转与补全
+" 复制到 home: cp scripts/dot_vimrc ~/.vimrc
+" ============================================================
+
+set nocompatible
+filetype off
+
+" 使用 vim-plug 管理插件
+let g:plug_home = expand('~/.vim/plugged')
+if empty(glob(g:plug_home . '/autoload/plug.vim'))
+  silent execute '!curl -fLo ' . g:plug_home . '/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim'
+  autocmd VimEnter * PlugInstall --sync | source $MYVIMRC
+endif
+
+call plug#begin(g:plug_home)
+
+" 左侧：文件列表
+Plug 'preservim/nerdtree'
+
+" 右侧：函数/符号列表（依赖 ctags）
+Plug 'vim-scripts/taglist.vim'
+
+" 自动生成/更新 ctags（进入项目时自动建 tag）
+Plug 'ludovicchabant/vim-gutentags'
+
+" Tab 触发补全（配合 omni 与 ctags）
+Plug 'ervandew/supertab'
+
+" 可选：模糊搜索与跳转（:Files, :Tags 等）
+Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
+Plug 'junegunn/fzf.vim'
+
+call plug#end()
+
+filetype plugin indent on
+syntax on
+
+" ------------------------------------------------------------
+" 基础设置
+" ------------------------------------------------------------
+set encoding=utf-8
+set number
+set relativenumber
+set cursorline
+set expandtab
+set tabstop=4
+set shiftwidth=4
+set softtabstop=4
+set backspace=2
+set incsearch
+set hlsearch
+set ignorecase
+set smartcase
+set hidden
+set autoread
+set laststatus=2
+set showcmd
+
+" C/C++ 等使用 tags 与 cscope 时从当前目录向上找
+set tags=./tags;,tags;
+set csprg=cscope
+set csto=0
+set cst
+set nocsverb
+
+" ------------------------------------------------------------
+" 布局：左侧 NERDTree，右侧 Taglist
+" ------------------------------------------------------------
+let g:NERDTreeWinPos = 'left'
+let g:NERDTreeWinSize = 32
+let g:Tlist_Use_Right_Window = 1
+let g:Tlist_WinWidth = 36
+let g:Tlist_Exit_OnlyWindow = 0
+let g:Tlist_Show_One_File = 0
+let g:Tlist_Close_On_Select = 1
+let g:Tlist_Enable_Fold_Column = 0
+let g:Tlist_File_Fold_Auto_Close = 1
+let g:Tlist_GainFocus_On_ToggleOpen = 1
+let g:Tlist_Process_File_Always = 1
+let g:Tlist_Use_SingleClick = 1
+let g:Tlist_Auto_Update = 1
+let g:Tlist_Display_Prototype = 1
+let g:Tlist_Display_Tag_Scope = 1
+let g:Tlist_Sort_Type = 'name'
+let g:Tlist_Ctags_Cmd = 'ctags'
+
+" 启动时打开 NERDTree + Taglist（仅当有文件时）
+function! s:OpenSidebars()
+  if argc() > 0
+    NERDTreeFind
+    TlistOpen
+  else
+    NERDTree
+    TlistOpen
+  endif
+  " 焦点回到编辑区
+  wincmd l
+  wincmd l
+endfunction
+autocmd VimEnter * call s:OpenSidebars()
+
+" ------------------------------------------------------------
+" Gutentags：自动 ctags，项目根目录用 .git 或根目录
+" ------------------------------------------------------------
+let g:gutentags_project_root = ['.git', '.root', '.gutentags_root']
+let g:gutentags_ctags_tagfile = '.tags'
+let g:gutentags_cache_dir = expand('~/.vim/cache/tags')
+let g:gutentags_ctags_extra_args = ['--fields=+lmnS', '--c-kinds=+p', '--c++-kinds=+p']
+let g:gutentags_auto_add_gtags_cscope = 1
+if !isdirectory(g:gutentags_cache_dir)
+  call mkdir(g:gutentags_cache_dir, 'p')
+endif
+
+" ------------------------------------------------------------
+" 补全：Supertab + 标签/关键字补全（C/C++ 用 tags）
+" ------------------------------------------------------------
+let g:SuperTabDefaultCompletionType = 'context'
+let g:SuperTabContextDefaultCompletionType = '<c-n>'
+let g:SuperTabCompletionContexts = ['s:ContextText', 's:ContextDiscover']
+let g:SuperTabLongestHighlight = 1
+set completeopt=menuone,longest,preview
+set complete=.,w,b,u,t,i
+
+" ------------------------------------------------------------
+" 跳转快捷键（ctags + cscope）
+" ------------------------------------------------------------
+" ctags：跳转到定义
+nnoremap <C-]>   :tag <C-R>=expand('<cword>')<CR><CR>
+nnoremap <C-W>]  :stag <C-R>=expand('<cword>')<CR><CR>
+nnoremap <C-T>   :pop<CR>
+
+" cscope：查引用、定义、调用等（需项目根有 cscope.out，运行 cscope -Rbq 生成）
+if has('cscope')
+  nnoremap <C-\>s :cs find s <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <C-\>g :cs find g <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <C-\>c :cs find c <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <C-\>t :cs find t <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <C-\>e :cs find e <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <C-\>f :cs find f <C-R>=expand('<cfile>')<CR><CR>
+  nnoremap <C-\>i :cs find i ^<C-R>=expand('<cfile>')<CR>$<CR>
+  nnoremap <C-\>d :cs find d <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <Leader>r :cs find s <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <Leader>g :cs find g <C-R>=expand('<cword>')<CR><CR>
+  nnoremap <Leader>c :cs find c <C-R>=expand('<cword>')<CR><CR>
+endif
+
+" ------------------------------------------------------------
+" 侧栏与窗口
+" ------------------------------------------------------------
+" Ctrl+Left/Right 在文件列表、编辑框、函数列表之间左右切换
+nnoremap <C-Left>  <C-W>h
+nnoremap <C-Right> <C-W>l
+execute "nnoremap \e[1;5D <C-W>h"
+execute "nnoremap \e[1;5C <C-W>l"
+inoremap <C-Left>  <C-\><C-N><C-W>h
+inoremap <C-Right> <C-\><C-N><C-W>l
+execute "inoremap \e[1;5D <C-\\><C-N><C-W>h"
+execute "inoremap \e[1;5C <C-\\><C-N><C-W>l"
+
+nnoremap <F9>  :NERDTreeToggle<CR>
+nnoremap <F10> :TlistToggle<CR>
+nnoremap <Leader>f :FZF<CR>
+nnoremap <Leader>b :Buffers<CR>
+
+" 若 cscope 数据库存在则自动连接
+function! LoadCscope()
+  let db = findfile('cscope.out', '.;')
+  if !empty(db)
+    set csverb
+    execute 'cs add ' . db
+    set nocsverb
+  endif
+endfunction
+autocmd VimEnter * call LoadCscope()
+
+" ------------------------------------------------------------
+" 配色与主题（可选）
+" ------------------------------------------------------------
+if has('termguicolors')
+  set termguicolors
+endif
+colorscheme default

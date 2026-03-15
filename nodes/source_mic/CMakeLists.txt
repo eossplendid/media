@@ -1,0 +1,6 @@
+add_library(source_mic STATIC source_mic.c)
+target_include_directories(source_mic PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src/media_core)
+target_link_libraries(source_mic PUBLIC media_core)
+if(UNIX AND NOT APPLE)
+  target_link_libraries(source_mic PUBLIC asound)
+endif()
