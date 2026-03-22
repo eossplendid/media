@@ -1,11 +1,7 @@
 /****************************************************************************
  * src/media_core/node.c
  *
- * Helpers for buffer allocation and node port handling.
- *
- * 本模块提供节点间数据传递的基础设施：
- *   - media_buffer_alloc/free：通用 media_buffer 分配与释放
- *   - media_caps_from_format：根据格式快速填充 media_caps_t
+ * Description
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -23,7 +19,6 @@
  * permissions and limitations under the License.
  *
  ****************************************************************************/
-
 #include "../../include/media_core/node.h"
 #include "../../include/media_types.h"
 #include <stdlib.h>
@@ -32,41 +27,41 @@
 /* 分配 media_buffer：内部 malloc data，带 release 回调可自定义释放逻辑 */
 media_buffer_t *media_buffer_alloc(size_t size)
 {
-  media_buffer_t *buf = (media_buffer_t *)calloc(1, sizeof(media_buffer_t));
-  if (!buf) return NULL;
-  buf->data = (uint8_t *)malloc(size);
-  if (!buf->data)
-    {
-      free(buf);
-      return NULL;
-    }
-  buf->size = size;
-  buf->release = NULL;
-  return buf;
+ media_buffer_t *buf = (media_buffer_t *)calloc(1, sizeof(media_buffer_t));
+ if (!buf) return NULL;
+ buf->data = (uint8_t *)malloc(size);
+ if (!buf->data)
+  {
+   free(buf);
+   return NULL;
+  }
+ buf->size = size;
+ buf->release = NULL;
+ return buf;
 }
 
 /* 释放 media_buffer：若有 release 回调则调用，否则 free(data) */
 void media_buffer_free(media_buffer_t *buf)
 {
-  if (!buf) return;
-  if (buf->release)
-    buf->release(buf);
-  else
-    {
-      free(buf->data);
-      buf->data = NULL;
-      buf->size = 0;
-    }
-  free(buf);
+ if (!buf) return;
+ if (buf->release)
+  buf->release(buf);
+ else
+  {
+   free(buf->data);
+   buf->data = NULL;
+   buf->size = 0;
+  }
+ free(buf);
 }
 
 /* 根据 sample_rate/channels/format 填充 caps，并计算 bytes_per_sample */
 void media_caps_from_format(media_caps_t *caps, uint32_t sample_rate,
-                            uint32_t channels, media_format_t format)
+              uint32_t channels, media_format_t format)
 {
-  if (!caps) return;
-  caps->sample_rate = sample_rate;
-  caps->channels = channels;
-  caps->format = format;
-  caps->bytes_per_sample = media_format_bytes(format) * channels;
+ if (!caps) return;
+ caps->sample_rate = sample_rate;
+ caps->channels = channels;
+ caps->format = format;
+ caps->bytes_per_sample = media_format_bytes(format) * channels;
 }

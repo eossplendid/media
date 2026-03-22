@@ -1,10 +1,24 @@
-/**
- * @file file_to_speaker.c
- * @brief Demo: 读取媒体文件，自动解析格式，解码并播放。
- *        支持 WAV(PCM)、MP3；根据文件格式自动选择 demuxer/decoder。
- *        用法: file_to_speaker [path]
- *        默认: media/wifi_no.mp3
- */
+/****************************************************************************
+ * src/demo/file_to_speaker.c
+ *
+ * Demo: 读取媒体文件，自动解析格式，解码并播放。
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+ * implied.  See the License for the specific language governing
+ * permissions and limitations under the License.
+ *
+ ****************************************************************************/
 #include "media_core/session.h"
 #include "media_core/pipeline.h"
 #include "media_core/factory.h"
@@ -35,85 +49,93 @@ extern void decoder_opus_destroy_fn(media_node_t *);
 
 typedef enum { FMT_WAV, FMT_MP3, FMT_OGG, FMT_UNKNOWN } detected_format_t;
 
-static detected_format_t detect_format(const char *path) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return FMT_UNKNOWN;
-    uint8_t magic[12];
-    size_t n = fread(magic, 1, sizeof(magic), f);
-    fclose(f);
-    if (n < 4) return FMT_UNKNOWN;
-    if (n >= 12 && memcmp(magic, "RIFF", 4) == 0 && memcmp(magic + 8, "WAVE", 4) == 0)
-        return FMT_WAV;
-    if (n >= 3 && memcmp(magic, "ID3", 3) == 0) return FMT_MP3;
-    if (n >= 2 && magic[0] == 0xFF && (magic[1] & 0xE0) == 0xE0) return FMT_MP3;
-    if (n >= 4 && memcmp(magic, "OggS", 4) == 0) return FMT_OGG;
-    return FMT_UNKNOWN;
+static detected_format_t detect_format(const char *path)
+{
+  FILE *f = fopen(path, "rb");
+  if (!f) return FMT_UNKNOWN;
+  uint8_t magic[12];
+  size_t n = fread(magic, 1, sizeof(magic), f);
+  fclose(f);
+  if (n < 4) return FMT_UNKNOWN;
+  if (n >= 12 && memcmp(magic, "RIFF", 4) == 0 && memcmp(magic + 8, "WAVE", 4) == 0)
+    return FMT_WAV;
+  if (n >= 3 && memcmp(magic, "ID3", 3) == 0) return FMT_MP3;
+  if (n >= 2 && magic[0] == 0xFF && (magic[1] & 0xE0) == 0xE0) return FMT_MP3;
+  if (n >= 4 && memcmp(magic, "OggS", 4) == 0) return FMT_OGG;
+  return FMT_UNKNOWN;
 }
 
-int main(int argc, char **argv) {
-    const char *path = argc > 1 ? argv[1] : "media/wifi_no.mp3";
-    if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] MEDIA_DEBUG=1\n");
-    detected_format_t fmt = detect_format(path);
-    if (fmt == FMT_UNKNOWN) {
-        fprintf(stderr, "Unknown format or cannot open: %s\n", path);
-        return 1;
-    }
+int main(int argc, char **argv)
+{
+  const char *path = argc > 1 ? argv[1] : "media/wifi_no.mp3";
+  if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] MEDIA_DEBUG=1\n");
+  detected_format_t fmt = detect_format(path);
+  if (fmt == FMT_UNKNOWN)
+  {
+    fprintf(stderr, "Unknown format or cannot open: %s\n", path);
+    return 1;
+  }
 
-    const char *fmt_str = fmt == FMT_WAV ? "WAV" : (fmt == FMT_MP3 ? "MP3" : "OGG");
-    printf("Detected format: %s\n", fmt_str);
-    printf("Playing: %s\n", path);
+  const char *fmt_str = fmt == FMT_WAV ? "WAV" : (fmt == FMT_MP3 ? "MP3" : "OGG");
+  printf("Detected format: %s\n", fmt_str);
+  printf("Playing: %s\n", path);
 
-    session_t *sess = session_create();
-    if (!sess) { fprintf(stderr, "session_create failed\n"); return 1; }
-    pipeline_t *pipe = pipeline_create(sess, 1);
-    if (!pipe) { fprintf(stderr, "pipeline_create failed\n"); session_destroy(sess); return 1; }
+  session_t *sess = session_create();
+  if (!sess) { fprintf(stderr, "session_create failed\n"); return 1; }
+  pipeline_t *pipe = pipeline_create(sess, 1);
+  if (!pipe) { fprintf(stderr, "pipeline_create failed\n"); session_destroy(sess); return 1; }
 
-    factory_register_node_type("source_file", (node_create_fn)source_file_create, source_file_destroy_fn);
-    factory_register_node_type("sink_speaker", (node_create_fn)sink_speaker_create, sink_speaker_destroy_fn);
-    factory_register_node_type("filter_resampler", (node_create_fn)resampler_create, resampler_destroy_fn);
-    factory_register_node_type("filter_format_converter", (node_create_fn)filter_format_converter_create, filter_format_converter_destroy_fn);
+  factory_register_node_type("source_file", (node_create_fn)source_file_create, source_file_destroy_fn);
+  factory_register_node_type("sink_speaker", (node_create_fn)sink_speaker_create, sink_speaker_destroy_fn);
+  factory_register_node_type("filter_resampler", (node_create_fn)resampler_create, resampler_destroy_fn);
+  factory_register_node_type("filter_format_converter", (node_create_fn)filter_format_converter_create, filter_format_converter_destroy_fn);
 
-    node_config_t file_cfg = { .path = path };
-    node_config_t spk_cfg = { .sample_rate = 48000, .channels = 1 };
+  node_config_t file_cfg = { .path = path };
+  node_config_t spk_cfg = { .sample_rate = 48000, .channels = 1 };
 
-    if (fmt == FMT_WAV) {
-        pipeline_add_node(pipe, "source_file", "file", &file_cfg);
-        pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
-        pipeline_link(pipe, "file", 0, "spk", 0);
-        /* pipeline_prepare 会根据 WAV 采样率与 speaker 配置自动插入 resampler */
-    } else if (fmt == FMT_MP3) {
-        factory_register_node_type("demuxer_mp3", (node_create_fn)demuxer_mp3_create, demuxer_mp3_destroy_fn);
-        factory_register_node_type("decoder_mp3", (node_create_fn)decoder_mp3_create, decoder_mp3_destroy_fn);
-        pipeline_add_node(pipe, "source_file", "file", &file_cfg);
-        pipeline_add_node(pipe, "demuxer_mp3", "demux", NULL);
-        pipeline_add_node(pipe, "decoder_mp3", "dec", NULL);
-        pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
-        pipeline_link(pipe, "file", 0, "demux", 0);
-        pipeline_link(pipe, "demux", 0, "dec", 0);
-        pipeline_link(pipe, "dec", 0, "spk", 0);
-        /* pipeline_prepare 会根据 decoder 输出采样率与 speaker 配置自动插入 resampler */
-    } else {
-        factory_register_node_type("demuxer_ogg", (node_create_fn)demuxer_ogg_create, demuxer_ogg_destroy_fn);
-        factory_register_node_type("decoder_opus", (node_create_fn)decoder_opus_create, decoder_opus_destroy_fn);
-        pipeline_add_node(pipe, "source_file", "file", &file_cfg);
-        pipeline_add_node(pipe, "demuxer_ogg", "demux", NULL);
-        pipeline_add_node(pipe, "decoder_opus", "dec", NULL);
-        pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
-        pipeline_link(pipe, "file", 0, "demux", 0);
-        pipeline_link(pipe, "demux", 0, "dec", 0);
-        pipeline_link(pipe, "dec", 0, "spk", 0);
-    }
+  if (fmt == FMT_WAV)
+  {
+    pipeline_add_node(pipe, "source_file", "file", &file_cfg);
+    pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
+    pipeline_link(pipe, "file", 0, "spk", 0);
+    /* pipeline_prepare 会根据 WAV 采样率与 speaker 配置自动插入 resampler */
+  } else if (fmt == FMT_MP3)
+  {
+    factory_register_node_type("demuxer_mp3", (node_create_fn)demuxer_mp3_create, demuxer_mp3_destroy_fn);
+    factory_register_node_type("decoder_mp3", (node_create_fn)decoder_mp3_create, decoder_mp3_destroy_fn);
+    pipeline_add_node(pipe, "source_file", "file", &file_cfg);
+    pipeline_add_node(pipe, "demuxer_mp3", "demux", NULL);
+    pipeline_add_node(pipe, "decoder_mp3", "dec", NULL);
+    pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
+    pipeline_link(pipe, "file", 0, "demux", 0);
+    pipeline_link(pipe, "demux", 0, "dec", 0);
+    pipeline_link(pipe, "dec", 0, "spk", 0);
+    /* pipeline_prepare 会根据 decoder 输出采样率与 speaker 配置自动插入 resampler */
 
-    if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] starting pipeline...\n");
-    session_start_pipeline(sess, 1);
-    /* Pipeline runs in thread; stops when source hits EOF (returns 1) */
-    while (pipeline_is_running(pipe)) {
-        usleep(100000);
-    }
-    /* 等待 ALSA 缓冲区播放完毕（WSL 下 drain 可能不可靠，额外等待） */
-    usleep(500000);
-    session_destroy(sess);
-    if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] pipeline stopped\n");
-    printf("Done.\n");
-    return 0;
+  else
+  {
+    factory_register_node_type("demuxer_ogg", (node_create_fn)demuxer_ogg_create, demuxer_ogg_destroy_fn);
+    factory_register_node_type("decoder_opus", (node_create_fn)decoder_opus_create, decoder_opus_destroy_fn);
+    pipeline_add_node(pipe, "source_file", "file", &file_cfg);
+    pipeline_add_node(pipe, "demuxer_ogg", "demux", NULL);
+    pipeline_add_node(pipe, "decoder_opus", "dec", NULL);
+    pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
+    pipeline_link(pipe, "file", 0, "demux", 0);
+    pipeline_link(pipe, "demux", 0, "dec", 0);
+    pipeline_link(pipe, "dec", 0, "spk", 0);
+  }
+
+  if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] starting pipeline...\n");
+  session_start_pipeline(sess, 1);
+  /* Pipeline runs in thread; stops when source hits EOF (returns 1) */
+  while (pipeline_is_running(pipe))
+  {
+    usleep(100000);
+  }
+  /* 等待 ALSA 缓冲区播放完毕（WSL 下 drain 可能不可靠，额外等待） */
+  usleep(500000);
+  session_destroy(sess);
+  if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] pipeline stopped\n");
+  printf("Done.\n");
+  return 0;
 }
