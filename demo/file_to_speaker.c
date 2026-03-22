@@ -28,6 +28,10 @@ extern media_node_t* resampler_create(const char *, const node_config_t *);
 extern void resampler_destroy_fn(media_node_t *);
 extern media_node_t* filter_format_converter_create(const char *, const node_config_t *);
 extern void filter_format_converter_destroy_fn(media_node_t *);
+extern media_node_t* demuxer_ogg_create(const char *, const node_config_t *);
+extern void demuxer_ogg_destroy_fn(media_node_t *);
+extern media_node_t* decoder_opus_create(const char *, const node_config_t *);
+extern void decoder_opus_destroy_fn(media_node_t *);
 
 typedef enum { FMT_WAV, FMT_MP3, FMT_OGG, FMT_UNKNOWN } detected_format_t;
 
@@ -89,10 +93,15 @@ int main(int argc, char **argv) {
         pipeline_link(pipe, "dec", 0, "spk", 0);
         /* pipeline_prepare 会根据 decoder 输出采样率与 speaker 配置自动插入 resampler */
     } else {
-        fprintf(stderr, "OGG-Opus not yet implemented, use MP3 or WAV\n");
-        pipeline_destroy(pipe);
-        session_destroy(sess);
-        return 1;
+        factory_register_node_type("demuxer_ogg", (node_create_fn)demuxer_ogg_create, demuxer_ogg_destroy_fn);
+        factory_register_node_type("decoder_opus", (node_create_fn)decoder_opus_create, decoder_opus_destroy_fn);
+        pipeline_add_node(pipe, "source_file", "file", &file_cfg);
+        pipeline_add_node(pipe, "demuxer_ogg", "demux", NULL);
+        pipeline_add_node(pipe, "decoder_opus", "dec", NULL);
+        pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg);
+        pipeline_link(pipe, "file", 0, "demux", 0);
+        pipeline_link(pipe, "demux", 0, "dec", 0);
+        pipeline_link(pipe, "dec", 0, "spk", 0);
     }
 
     if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] starting pipeline...\n");

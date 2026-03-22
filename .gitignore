@@ -1,4 +1,5 @@
 build
+*.ogg
 *.wav
 *.mp3
 .fetchcontent

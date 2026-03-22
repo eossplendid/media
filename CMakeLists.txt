@@ -94,7 +94,10 @@ add_subdirectory(nodes/demuxer_mp3)
 add_subdirectory(nodes/decoder_opus)
 add_subdirectory(nodes/demuxer_ogg)
 add_subdirectory(nodes/encoder_mp3)
+add_subdirectory(nodes/encoder_opus)
 add_subdirectory(nodes/muxer_mp3)
+add_subdirectory(nodes/muxer_ogg)
+add_subdirectory(nodes/sink_file)
 
 # Demos
 add_subdirectory(demo)

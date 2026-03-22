@@ -1,0 +1,8 @@
+add_library(encoder_opus STATIC encoder_opus.c)
+target_include_directories(encoder_opus PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(encoder_opus PUBLIC media_core)
+find_library(OPUS_LIB opus)
+if(OPUS_LIB)
+  target_link_libraries(encoder_opus PRIVATE ${OPUS_LIB})
+  target_compile_definitions(encoder_opus PRIVATE HAVE_OPUS=1)
+endif()
