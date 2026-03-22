@@ -92,8 +92,8 @@ pipeline_id_t session_get_pipeline_by_mix_target(session_t *session,
   return 0;
 }
 
-/* 合并两个同 mix_target 的 pipeline：提取源节点，构建 a_*/b_* -> mixer -> sink
-   中间节点（resampler 等）保留在各源链中 */
+/* 合并两个同 mix_target 的 pipeline：提取源节点，构建 a_ 与 b_ 前缀节点
+   -> mixer -> sink；中间节点（resampler 等）保留在各源链中 */
 static int merge_pipelines_for_mix(session_t *session, pipeline_t *pipe_old,
                                    pipeline_t *pipe_new)
 {

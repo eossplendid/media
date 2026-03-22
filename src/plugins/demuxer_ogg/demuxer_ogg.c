@@ -12,7 +12,7 @@
 #include <ogg/ogg.h>
 #endif
 
-#define DEMUX_OGG_PENDING_MAX 8
+#define DEMUX_OGG_PENDING_MAX 128  /* 避免 source 读速高于消费时丢包 */
 
 typedef struct {
     uint8_t *data;
@@ -70,23 +70,7 @@ static int demuxer_ogg_process(media_node_t *node) {
     media_buffer_t *in_buf = node->input_buffers[0];
     if (!p) return 0;
 
-    if (p->pending_count > 0) {
-        demux_pending_t *q = &p->pending[0];
-        media_buffer_t *out_buf = media_buffer_alloc(q->size);
-        if (!out_buf) return -1;
-        memcpy(out_buf->data, q->data, q->size);
-        out_buf->size = q->size;
-        out_buf->pts = q->pts;
-        out_buf->caps.codec = MEDIA_CODEC_OPUS;
-        out_buf->caps.sample_rate = q->sample_rate;
-        out_buf->caps.channels = q->channels;
-        free(q->data);
-        p->pending_count--;
-        memmove(&p->pending[0], &p->pending[1], (size_t)p->pending_count * sizeof(p->pending[0]));
-        node->output_buffers[0] = out_buf;
-        return 0;
-    }
-
+    /* 必须优先消费输入，否则有 pending 时新数据会被丢弃（本 tick 末尾 input 会释放） */
     if (in_buf && in_buf->data && in_buf->size > 0) {
         char *buf = ogg_sync_buffer(&p->oy, (long)in_buf->size);
         if (!buf) return -1;

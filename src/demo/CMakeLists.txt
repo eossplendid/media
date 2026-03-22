@@ -32,3 +32,9 @@ target_link_libraries(mix_target_demo PRIVATE media_core source_mic source_file 
 add_executable(mic_to_ogg mic_to_ogg.c)
 target_include_directories(mic_to_ogg PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mic_to_ogg PRIVATE media_core source_mic encoder_opus muxer_ogg sink_file)
+
+# file_to_wav: file -> demuxer -> decoder -> sink_wav(WAV muxer+file)
+# 根据输入格式自动选择 demuxer/decoder，支持 WAV/MP3/OGG-Opus
+add_executable(file_to_wav file_to_wav.c)
+target_include_directories(file_to_wav PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(file_to_wav PRIVATE media_core source_file sink_wav demuxer_mp3 decoder_mp3 demuxer_ogg decoder_opus filter_resampler filter_format_converter)

@@ -606,6 +606,9 @@ int pipeline_start(pipeline_t *pipe)
   /* Push 模式：按 topo 顺序推进，tick 控制不同 frame_ms 节点的运行频率 */
   else
     {
+      int eos_seen = 0;      /* 源节点返回 EOS(1) 后进入排空阶段 */
+      int drain_ticks = 0;
+#define EOS_DRAIN_MAX 600   /* 排空阶段最大 tick 数，确保 demuxer 队列排尽 */
       while (pipe->running)
         {
           for (int i = 0; i < n; i++)
@@ -628,13 +631,22 @@ int pipeline_start(pipeline_t *pipe)
                     {
                       if (media_debug_enabled())
                         fprintf(stderr,
-                                "[pipeline] tick=%d node=%s ret=%d\n",
+                                "[pipeline] tick=%d node=%s ret=%d (EOS)\n",
                                 tick, nid, r);
-                      pipe->running = 0;
-                      return r;
+                      /* EOS：不立即退出，继续处理本 tick 下游节点并进入排空阶段 */
+                      eos_seen = 1;
+                      if (r < 0)  /* 真正错误才立即返回 */
+                        {
+                          pipe->running = 0;
+                          return r;
+                        }
                     }
                 }
             }
+          if (eos_seen)
+            drain_ticks++;
+          if (drain_ticks >= EOS_DRAIN_MAX)
+            pipe->running = 0;
           if (media_debug_enabled() && tick > 0 && tick % 100 == 0)
             fprintf(stderr, "[pipeline] tick=%d\n", tick);
           tick++;
