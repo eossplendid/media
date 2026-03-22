@@ -71,7 +71,7 @@ add_library(media_core STATIC
 )
 
 # HAL implementations (platform-specific)
-add_subdirectory(hal)
+add_subdirectory(src/hal)
 target_include_directories(media_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -79,25 +79,8 @@ if(UNIX AND NOT APPLE)
   target_link_libraries(media_core PUBLIC pthread)
 endif()
 
-# Nodes (each node is a static lib that links media_core)
-add_subdirectory(nodes/source_mic)
-add_subdirectory(nodes/sink_wav)
-add_subdirectory(nodes/source_file)
-add_subdirectory(nodes/sink_speaker)
-add_subdirectory(nodes/filter_resampler)
-add_subdirectory(nodes/filter_frame_adapter)
-add_subdirectory(nodes/filter_format_converter)
-add_subdirectory(nodes/filter_mixer)
-add_subdirectory(nodes/filter_volume)
-add_subdirectory(nodes/decoder_mp3)
-add_subdirectory(nodes/demuxer_mp3)
-add_subdirectory(nodes/decoder_opus)
-add_subdirectory(nodes/demuxer_ogg)
-add_subdirectory(nodes/encoder_mp3)
-add_subdirectory(nodes/encoder_opus)
-add_subdirectory(nodes/muxer_mp3)
-add_subdirectory(nodes/muxer_ogg)
-add_subdirectory(nodes/sink_file)
+# Plugins (each plugin is a static lib that links media_core)
+add_subdirectory(src/plugins)
 
 # Demos
-add_subdirectory(demo)
+add_subdirectory(src/demo)

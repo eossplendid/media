@@ -48,8 +48,8 @@
 ### 4. 关键路径
 
 - `demo/file_to_speaker.c`：主入口，构建 pipeline
-- `nodes/sink_speaker/sink_speaker.c`：扬声器输出
-- `nodes/filter_resampler/filter_resampler.c`：采样率转换
+- `src/plugins/sink_speaker/sink_speaker.c`：扬声器输出
+- `src/plugins/filter_resampler/filter_resampler.c`：采样率转换
 - `src/media_core/pipeline.c`：pipeline 主循环
 - `src/media_core/session.c`：多 pipeline 线程管理
 

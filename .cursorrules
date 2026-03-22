@@ -1,0 +1,13 @@
+# Media 项目规则
+
+## 目录结构
+- C 源码统一在 `src/` 下：`src/media_core/`, `src/plugins/`, `src/hal/`, `src/demo/`
+- `nodes` 已更名为 `plugins`，路径为 `src/plugins/`
+
+## 编码风格（NuttX）
+- 缩进：2 空格
+- 大括号：单独一行
+- 行宽：≤78 列
+- 命名：小写+下划线
+
+详见 docs/CODING_STYLE.md

@@ -91,30 +91,30 @@ stream/
 │       ├── node.h
 │       ├── link.h
 │       └── factory.h
-├── src/media_core/
-│   ├── session.c
-│   ├── pipeline.c
-│   ├── link.c
-│   ├── factory.c
-│   ├── node.c
-│   └── pipeline_internal.h
-├── nodes/
-│   ├── source_mic/
-│   ├── source_file/      # 支持 WAV、MP3、OGG 格式检测
-│   ├── sink_wav/
-│   ├── sink_speaker/
-│   ├── filter_resampler/
-│   ├── filter_mixer/
-│   ├── demuxer_mp3/      # MP3 解复用（跳过 ID3）
-│   ├── demuxer_ogg/      # OGG 解复用（待 libopusfile）
-│   ├── decoder_mp3/     # MP3 解码（minimp3）
-│   ├── decoder_opus/    # Opus 解码（待 libopus）
-│   ├── encoder_mp3/     # MP3 编码（待 LAME/Shine）
-│   └── muxer_mp3/       # MP3 复用
-└── demo/
-    ├── mic_to_wav.c
-    ├── mic_to_speaker.c
-    └── mix_to_speaker.c
+├── src/
+│   ├── media_core/
+│   │   ├── session.c
+│   │   ├── pipeline.c
+│   │   ├── link.c
+│   │   ├── factory.c
+│   │   └── node.c
+│   ├── plugins/         # 插件（与 media_core 同级）
+│   │   ├── source_mic/
+│   │   ├── source_file/   # 支持 WAV、MP3、OGG 格式检测
+│   │   ├── sink_wav/
+│   │   ├── sink_speaker/
+│   │   ├── filter_resampler/
+│   │   ├── filter_mixer/
+│   │   ├── demuxer_mp3/   # MP3 解复用（跳过 ID3）
+│   │   ├── demuxer_ogg/   # OGG 解复用
+│   │   ├── decoder_mp3/   # MP3 解码（minimp3）
+│   │   ├── decoder_opus/  # Opus 解码
+│   │   ├── encoder_mp3/   # MP3 编码（待 LAME/Shine）
+│   │   └── muxer_mp3/     # MP3 复用
+│   ├── hal/
+│   └── demo/
+│       ├── mic_to_wav.c
+│       ├── mic_to_speaker.c
+│       └── mix_to_speaker.c
 ```
-
 TinyALSA 在配置时通过 FetchContent 下载到 `build/_deps/tinyalsa-src/`，无需手动克隆。

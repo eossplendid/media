@@ -1,8 +1,0 @@
-add_library(muxer_ogg STATIC muxer_ogg.c)
-target_include_directories(muxer_ogg PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(muxer_ogg PUBLIC media_core)
-find_library(OGG_LIB ogg)
-if(OGG_LIB)
-  target_link_libraries(muxer_ogg PRIVATE ${OGG_LIB})
-  target_compile_definitions(muxer_ogg PRIVATE HAVE_OGG=1)
-endif()

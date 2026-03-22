@@ -1,0 +1,8 @@
+add_library(demuxer_ogg STATIC demuxer_ogg.c)
+target_include_directories(demuxer_ogg PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(demuxer_ogg PUBLIC media_core)
+find_library(OGG_LIB ogg)
+if(OGG_LIB)
+  target_link_libraries(demuxer_ogg PRIVATE ${OGG_LIB})
+  target_compile_definitions(demuxer_ogg PRIVATE HAVE_OGG=1)
+endif()
