@@ -6,6 +6,7 @@
 #define MEDIA_CORE_FACTORY_H
 
 #include "node.h"
+#include "plugin.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,12 @@ typedef void (*node_destroy_fn)(media_node_t *node);
  * @return 0 on success
  */
 int factory_register_node_type(const char *name, node_create_fn create_fn, node_destroy_fn destroy_fn);
+
+/**
+ * Register a plugin by descriptor (extended with capabilities and config schema).
+ * Backward compatible: can pass plugin_descriptor with config_schema=NULL, capabilities=0.
+ */
+int factory_register_plugin(const plugin_descriptor_t *desc, node_create_fn create_fn, node_destroy_fn destroy_fn);
 
 /**
  * Create a node instance by type name (used by pipeline_add_node).

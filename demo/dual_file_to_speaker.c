@@ -9,12 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <unistd.h>
 #include <pthread.h>
-#endif
 
 extern media_node_t* source_file_create(const char *, const node_config_t *);
 extern void source_file_destroy_fn(media_node_t *);
@@ -31,33 +27,16 @@ typedef struct {
     int delay_ms;
 } thread_arg_t;
 
-#ifdef _WIN32
-static DWORD WINAPI play_thread_fn(LPVOID arg) {
-#else
 static void* play_thread_fn(void *arg) {
-#endif
     thread_arg_t *ta = (thread_arg_t *)arg;
-    if (ta->delay_ms > 0) {
-#ifdef _WIN32
-        Sleep(ta->delay_ms);
-#else
+    if (ta->delay_ms > 0)
         usleep(ta->delay_ms * 1000);
-#endif
-    }
     int id = playback_group_add_source(ta->pg, ta->path);
     if (id >= 0) {
-#ifdef _WIN32
         printf("[thread] added source %d: %s\n", id, ta->path);
-#else
-        printf("[thread] added source %d: %s\n", id, ta->path);
-#endif
         playback_group_start(ta->pg);
     }
-#ifdef _WIN32
-    return 0;
-#else
     return NULL;
-#endif
 }
 
 int main(int argc, char **argv) {
@@ -104,20 +83,12 @@ int main(int argc, char **argv) {
     printf("t=1.5s: thread2 adds file2 -> auto mixer -> speaker\n");
     printf("Playing 15 sec...\n");
 
-#ifdef _WIN32
-    HANDLE t1 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)play_thread_fn, &ta1, 0, NULL);
-    HANDLE t2 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)play_thread_fn, &ta2, 0, NULL);
-    Sleep(15000);
-    if (t1) WaitForSingleObject(t1, INFINITE);
-    if (t2) WaitForSingleObject(t2, INFINITE);
-#else
     pthread_t t1, t2;
     pthread_create(&t1, NULL, play_thread_fn, &ta1);
     pthread_create(&t2, NULL, play_thread_fn, &ta2);
     sleep(15);
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
-#endif
 
     playback_group_stop(pg);
     playback_group_destroy(pg);

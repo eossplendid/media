@@ -59,13 +59,19 @@ endif()
 
 # Media core static library
 add_library(media_core STATIC
+  src/media_core/audio_focus.c
+  src/media_core/config_schema.c
   src/media_core/factory.c
+  src/media_core/hal_audio.c
   src/media_core/link.c
   src/media_core/node.c
   src/media_core/pipeline.c
   src/media_core/playback_group.c
   src/media_core/session.c
 )
+
+# HAL implementations (platform-specific)
+add_subdirectory(hal)
 target_include_directories(media_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -80,7 +86,9 @@ add_subdirectory(nodes/source_file)
 add_subdirectory(nodes/sink_speaker)
 add_subdirectory(nodes/filter_resampler)
 add_subdirectory(nodes/filter_frame_adapter)
+add_subdirectory(nodes/filter_format_converter)
 add_subdirectory(nodes/filter_mixer)
+add_subdirectory(nodes/filter_volume)
 add_subdirectory(nodes/decoder_mp3)
 add_subdirectory(nodes/demuxer_mp3)
 add_subdirectory(nodes/decoder_opus)

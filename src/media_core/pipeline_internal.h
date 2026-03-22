@@ -26,6 +26,7 @@ struct pipeline {
     uint32_t id;
     int running;
     pipeline_mode_t mode;
+    char mix_target[64];  /* 非空时表示输出到该 bus，创建第二条时自动协商 mixer */
     uint8_t pull_processed[MAX_NODES];  /* pull 模式下每轮已处理标记 */
     media_node_t *nodes[MAX_NODES];
     char *node_ids[MAX_NODES];

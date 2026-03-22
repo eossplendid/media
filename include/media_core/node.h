@@ -26,6 +26,7 @@ typedef struct node_config {
     uint32_t channels;
     uint32_t input_count;  /* for mixer */
     uint32_t frame_ms;     /* 期望输入帧长(ms)，0=不限制；prepare 时用于协商 */
+    uint32_t format;       /* media_format_t：期望输入/输出格式，0=不限制 */
     void *opaque;
 } node_config_t;
 
@@ -48,6 +49,7 @@ typedef struct node_ops {
     int (*process)(media_node_t *node);
     int (*flush)(media_node_t *node);
     void (*destroy)(media_node_t *node);
+    int (*set_volume)(media_node_t *node, float gain);  /* 可选：0.0-1.0，仅 PLUGIN_CAP_VOLUME 节点实现，否则 NULL */
 } node_ops_t;
 
 /** Node descriptor: type name + ops + port counts */

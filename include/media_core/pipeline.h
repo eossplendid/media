@@ -42,6 +42,15 @@ pipeline_mode_t pipeline_get_mode(const pipeline_t *pipe);
 pipeline_t* pipeline_create(session_t *session, pipeline_id_t id);
 
 /**
+ * Set mix target. When creating a second pipeline with same mix_target,
+ * session_start_pipeline will auto-merge into one pipeline with mixer.
+ */
+void pipeline_set_mix_target(pipeline_t *pipe, const char *mix_target);
+
+/** Get mix target (NULL if not set) */
+const char* pipeline_get_mix_target(const pipeline_t *pipe);
+
+/**
  * Add a node to the pipeline (creates instance via factory).
  * @param node_type_name registered type (e.g. "source_mic")
  * @param node_id unique instance id within this pipeline (e.g. "mic", "spk")
@@ -70,6 +79,12 @@ pipeline_id_t pipeline_get_id(const pipeline_t *pipe);
 
 /** Check if pipeline is currently running. */
 int pipeline_is_running(const pipeline_t *pipe);
+
+/**
+ * Set volume for a node (0.0-1.0). Node must support set_volume (e.g. filter_volume).
+ * @return 0 on success
+ */
+int pipeline_set_node_volume(pipeline_t *pipe, const char *node_id, float gain);
 
 #ifdef __cplusplus
 }

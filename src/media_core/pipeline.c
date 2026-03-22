@@ -172,6 +172,20 @@ pipeline_id_t pipeline_get_id(const pipeline_t *pipe) {
     return pipe ? pipe->id : 0;
 }
 
+void pipeline_set_mix_target(pipeline_t *pipe, const char *mix_target) {
+    if (!pipe) return;
+    if (mix_target) {
+        strncpy(pipe->mix_target, mix_target, sizeof(pipe->mix_target) - 1);
+        pipe->mix_target[sizeof(pipe->mix_target) - 1] = '\0';
+    } else {
+        pipe->mix_target[0] = '\0';
+    }
+}
+
+const char* pipeline_get_mix_target(const pipeline_t *pipe) {
+    return (pipe && pipe->mix_target[0]) ? pipe->mix_target : NULL;
+}
+
 /* 收集 link 上游的输出 caps（含 frame_ms） */
 static void get_upstream_output_caps(const pipeline_t *pipe, const char *from_id, int from_port,
                                      media_caps_t *out_caps) {
@@ -303,7 +317,59 @@ int pipeline_prepare(pipeline_t *pipe) {
         }
     }
 
-    /* 第二遍：计算 base_tick_ms 和 node_tick_period */
+    /* 第三遍：format 不匹配时插入 filter_format_converter */
+    num_links = pipe->num_links;
+    for (int i = 0; i < num_links; i++) {
+        link_entry_t *e = &pipe->links[i];
+        if (!e->active) continue;
+
+        media_caps_t up_caps;
+        get_upstream_output_caps(pipe, e->from_id, e->from_port, &up_caps);
+
+        int to_idx = find_node_index(pipe, e->to_id);
+        if (to_idx < 0) continue;
+        media_node_t *to_node = pipe->nodes[to_idx];
+        if (to_node->desc && strcmp(to_node->desc->name, "filter_format_converter") == 0)
+            continue;
+        uint32_t req_format = pipe->node_configs[to_idx].format;
+
+        if (req_format != 0 && up_caps.format != MEDIA_FORMAT_UNKNOWN &&
+            (media_format_t)req_format != up_caps.format) {
+            if (pipe->num_nodes >= MAX_NODES) return -1;
+            if (pipe->num_links >= MAX_LINKS - 1) return -1;
+
+            char conv_id[64];
+            snprintf(conv_id, sizeof(conv_id), "_format_converter_%d", i);
+            node_config_t conv_cfg = {0};
+            conv_cfg.format = req_format;
+            conv_cfg.sample_rate = up_caps.sample_rate;
+            conv_cfg.channels = up_caps.channels;
+
+            media_node_t *conv = factory_create_node("filter_format_converter", conv_id, &conv_cfg);
+            if (!conv) {
+                fprintf(stderr, "[pipeline_prepare] filter_format_converter 未注册，跳过\n");
+                continue;
+            }
+            if (conv->desc && conv->desc->ops && conv->desc->ops->set_caps) {
+                media_caps_t in_caps = up_caps;
+                conv->desc->ops->set_caps(conv, 0, &in_caps);
+            }
+
+            conv->pipeline = pipe;
+            pipe->nodes[pipe->num_nodes] = conv;
+            pipe->node_ids[pipe->num_nodes] = strdup(conv_id);
+            pipe->node_configs[pipe->num_nodes] = conv_cfg;
+            pipe->node_tick_period[pipe->num_nodes] = 1;
+            pipe->num_nodes++;
+
+            pipeline_remove_link(pipe, e->from_id, e->from_port, e->to_id, e->to_port);
+            pipeline_link(pipe, e->from_id, e->from_port, conv_id, 0);
+            pipeline_link(pipe, conv_id, 0, e->to_id, e->to_port);
+            num_links = pipe->num_links;
+        }
+    }
+
+    /* 计算 base_tick_ms 和 node_tick_period */
     uint32_t min_frame = 0;
     for (int i = 0; i < pipe->num_nodes; i++) {
         media_caps_t caps;
@@ -422,6 +488,16 @@ int pipeline_start(pipeline_t *pipe) {
         }
     }
     return 0;
+}
+
+int pipeline_set_node_volume(pipeline_t *pipe, const char *node_id, float gain) {
+    if (!pipe || !node_id) return -1;
+    int idx = find_node_index(pipe, node_id);
+    if (idx < 0) return -1;
+    media_node_t *node = pipe->nodes[idx];
+    if (!node || !node->desc || !node->desc->ops || !node->desc->ops->set_volume)
+        return -1;
+    return node->desc->ops->set_volume(node, gain);
 }
 
 void pipeline_destroy(pipeline_t *pipe) {

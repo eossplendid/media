@@ -1,13 +1,11 @@
 /**
  * @file source_mic.c
- * @brief Microphone source node (0 in, 1 out); ALSA capture, 参考 cursor_repo/test_recorder.
- *
- * 配置：16kHz, 16bit, 单通道，20ms 帧（可配置）
- * 依赖：libasound2-dev (sudo apt install libasound2-dev)
- * WSL：需安装 libasound2-plugins pulseaudio，PULSE_SERVER 连接 Windows
+ * @brief Microphone source (0 in, 1 out). Uses hal_audio_in when registered; else ALSA.
  */
 #include "media_core/node.h"
 #include "media_core/factory.h"
+#include "media_core/hal_audio.h"
+#include "media_core/config_schema.h"
 #include "media_types.h"
 #include <stdlib.h>
 #include <string.h>
@@ -24,36 +22,51 @@
 #define SOURCE_MIC_DEFAULT_CHANNELS 1
 
 typedef struct {
-#ifdef __linux__
-    snd_pcm_t *pcm;
-#endif
+    void *hal_handle;
     char device[64];
     unsigned int sample_rate;
     unsigned int channels;
     unsigned int frame_ms;
-    unsigned int frame_size;   /* bytes per frame (channels * 2 for S16) */
-    size_t period_bytes;       /* bytes per period = frame_samples * frame_size */
-    unsigned int frame_samples; /* samples per period (mono) or frames (stereo) */
-    int64_t next_pts;           /* 下一帧 PTS (us)，用于 media_buffer_t.pts 维护 */
+    unsigned int frame_size;
+    size_t period_bytes;
+    unsigned int frame_samples;
+    int64_t next_pts;
+#ifdef __linux__
+    snd_pcm_t *pcm;
+#endif
 } source_mic_priv_t;
 
 static int source_mic_init(media_node_t *node, const node_config_t *config) {
     source_mic_priv_t *p = (source_mic_priv_t *)node->private_data;
     if (!p) return -1;
-    p->sample_rate = config && config->sample_rate ? config->sample_rate : SOURCE_MIC_DEFAULT_SAMPLE_RATE;
-    p->channels = config && config->channels ? config->channels : SOURCE_MIC_DEFAULT_CHANNELS;
-    p->frame_ms = SOURCE_MIC_DEFAULT_FRAME_MS;
-    p->frame_size = p->channels * 2; /* S16 */
-    /* ALSA frame = 1 sample per channel; frame_samples = frames to read per period */
+    p->sample_rate = config_get_uint32(config, "sample_rate", SOURCE_MIC_DEFAULT_SAMPLE_RATE);
+    if (!p->sample_rate) p->sample_rate = SOURCE_MIC_DEFAULT_SAMPLE_RATE;
+    p->channels = config_get_uint32(config, "channels", SOURCE_MIC_DEFAULT_CHANNELS);
+    if (!p->channels) p->channels = SOURCE_MIC_DEFAULT_CHANNELS;
+    p->frame_ms = config_get_uint32(config, "frame_ms", SOURCE_MIC_DEFAULT_FRAME_MS);
+    if (!p->frame_ms) p->frame_ms = SOURCE_MIC_DEFAULT_FRAME_MS;
+    p->frame_size = p->channels * 2;
     p->frame_samples = p->sample_rate * p->frame_ms / 1000;
     p->period_bytes = (size_t)p->frame_samples * p->frame_size;
     p->next_pts = 0;
 
-    if (config && config->device && config->device[0])
-        strncpy(p->device, config->device, sizeof(p->device) - 1);
-    else
-        strncpy(p->device, "default", sizeof(p->device) - 1);
+    const char *dev = config_get_string(config, "device", "default");
+    strncpy(p->device, dev, sizeof(p->device) - 1);
     p->device[sizeof(p->device) - 1] = '\0';
+
+    const hal_audio_in_ops_t *ops = hal_get_audio_in_ops();
+    if (ops && ops->open) {
+        hal_audio_config_t hcfg = {
+            .device = p->device,
+            .sample_rate = p->sample_rate,
+            .channels = p->channels,
+            .format = MEDIA_FORMAT_S16,
+            .period_frames = (uint32_t)p->frame_samples,
+            .frame_ms = p->frame_ms
+        };
+        int r = ops->open(&p->hal_handle, &hcfg);
+        if (r == 0) return 0;
+    }
 
 #ifdef __linux__
     int err = snd_pcm_open(&p->pcm, p->device, SND_PCM_STREAM_CAPTURE, 0);
@@ -79,22 +92,12 @@ static int source_mic_init(media_node_t *node, const node_config_t *config) {
         p->pcm = NULL;
         return -1;
     }
-    err = snd_pcm_prepare(p->pcm);
-    if (err < 0) {
-        fprintf(stderr, "[source_mic] snd_pcm_prepare failed: %s\n", snd_strerror(err));
-        snd_pcm_close(p->pcm);
-        p->pcm = NULL;
-        return -1;
-    }
-    err = snd_pcm_start(p->pcm);
-    if (err < 0) {
-        fprintf(stderr, "[source_mic] snd_pcm_start failed: %s\n", snd_strerror(err));
-        snd_pcm_close(p->pcm);
-        p->pcm = NULL;
-        return -1;
-    }
-#endif
+    snd_pcm_prepare(p->pcm);
+    snd_pcm_start(p->pcm);
     return 0;
+#else
+    return -1;
+#endif
 }
 
 static int source_mic_get_caps(media_node_t *node, int port_index, media_caps_t *out_caps) {
@@ -124,6 +127,19 @@ static int source_mic_process(media_node_t *node) {
     buf->caps.format = MEDIA_FORMAT_S16;
     buf->caps.bytes_per_sample = p->frame_size;
 
+    const hal_audio_in_ops_t *ops = hal_get_audio_in_ops();
+    if (ops && p->hal_handle && ops->read) {
+        int n = ops->read(p->hal_handle, buf->data, p->frame_samples, &buf->pts);
+        if (n <= 0) {
+            media_buffer_free(buf);
+            return 0;
+        }
+        buf->size = (size_t)n * p->frame_size;
+        p->next_pts += (int64_t)p->frame_ms * 1000;
+        node->output_buffers[0] = buf;
+        return 0;
+    }
+
 #ifdef __linux__
     if (p->pcm) {
         snd_pcm_sframes_t n = snd_pcm_readi(p->pcm, buf->data,
@@ -135,7 +151,7 @@ static int source_mic_process(media_node_t *node) {
         }
         buf->size = (size_t)n * p->frame_size;
         buf->pts = p->next_pts;
-        p->next_pts += (int64_t)p->frame_ms * 1000;  /* 帧长(ms) -> us */
+        p->next_pts += (int64_t)p->frame_ms * 1000;
     } else {
         media_buffer_free(buf);
         return -1;
@@ -159,6 +175,9 @@ static int source_mic_flush(media_node_t *node) {
 static void source_mic_destroy(media_node_t *node) {
     source_mic_priv_t *p = (source_mic_priv_t *)node->private_data;
     if (p) {
+        const hal_audio_in_ops_t *ops = hal_get_audio_in_ops();
+        if (ops && p->hal_handle && ops->close)
+            ops->close(p->hal_handle);
 #ifdef __linux__
         if (p->pcm) {
             snd_pcm_drop(p->pcm);
@@ -179,19 +198,33 @@ static const node_ops_t source_mic_ops = {
     .process = source_mic_process,
     .flush = source_mic_flush,
     .destroy = source_mic_destroy,
+    .set_volume = NULL,
 };
 
-static const node_descriptor_t source_mic_desc = {
+static const config_param_t source_mic_params[] = {
+    { "device", CONFIG_STRING, 0, 0 },
+    { "sample_rate", CONFIG_UINT32, 0, 16000 },
+    { "channels", CONFIG_UINT32, 0, 1 },
+    { "frame_ms", CONFIG_UINT32, 0, 20 },
+};
+static const plugin_config_schema_t source_mic_schema = {
+    .params = source_mic_params,
+    .num_params = 4,
+};
+
+static const plugin_descriptor_t source_mic_plugin = {
     .name = "source_mic",
     .ops = &source_mic_ops,
     .num_input_ports = 0,
     .num_output_ports = 1,
+    .capabilities = PLUGIN_CAP_SOURCE | PLUGIN_CAP_HAL_AUDIO,
+    .config_schema = &source_mic_schema,
 };
 
 media_node_t* source_mic_create(const char *instance_id, const node_config_t *config) {
     media_node_t *node = (media_node_t *)calloc(1, sizeof(media_node_t));
     if (!node) return NULL;
-    node->desc = &source_mic_desc;
+    node->desc = (const node_descriptor_t *)&source_mic_plugin;
     node->instance_id = strdup(instance_id ? instance_id : "mic");
     node->num_input_ports = 0;
     node->num_output_ports = 1;

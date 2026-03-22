@@ -21,4 +21,9 @@ target_link_libraries(dual_file_to_speaker PRIVATE media_core source_file sink_s
 # file_to_speaker: 自动解析格式(WAV/MP3)，解码并播放
 add_executable(file_to_speaker file_to_speaker.c)
 target_include_directories(file_to_speaker PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(file_to_speaker PRIVATE media_core source_file sink_speaker demuxer_mp3 decoder_mp3 filter_resampler)
+target_link_libraries(file_to_speaker PRIVATE media_core source_file sink_speaker demuxer_mp3 decoder_mp3 filter_resampler filter_format_converter)
+
+# mix_target_demo: 两条 pipeline，mix_target 时自动协商 mixer
+add_executable(mix_target_demo mix_target_demo.c)
+target_include_directories(mix_target_demo PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mix_target_demo PRIVATE media_core source_mic source_file sink_speaker filter_resampler filter_mixer)

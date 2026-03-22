@@ -33,6 +33,9 @@ void session_stop_pipeline(session_t *session, pipeline_id_t id);
 /** Get pipeline by id (NULL if not found). */
 pipeline_t* session_get_pipeline(session_t *session, pipeline_id_t id);
 
+/** Get pipeline id that owns the given mix_target bus (0 if none). */
+pipeline_id_t session_get_pipeline_by_mix_target(session_t *session, const char *mix_target);
+
 /**
  * Detach and stop a pipeline (waits for its thread). Caller must pipeline_destroy.
  * Used when rebuilding pipeline topology (e.g. dynamic mixer insertion).

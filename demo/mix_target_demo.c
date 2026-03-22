@@ -1,6 +1,9 @@
 /**
- * @file mix_to_speaker.c
- * @brief Demo: file (48k) + mic (16k) -> resampler -> mixer -> speaker.
+ * @file mix_target_demo.c
+ * @brief Demo: 两条 pipeline 分别创建，mix_target="speaker" 时自动协商 mixer 合并。
+ *   pipeline 1: mic -> spk (mix_target=speaker)
+ *   pipeline 2: file -> spk (mix_target=speaker)
+ *   启动 pipeline 2 时自动与 1 合并为 mic+file -> mixer -> spk
  */
 #include "media_core/session.h"
 #include "media_core/pipeline.h"
@@ -26,8 +29,6 @@ int main(int argc, char **argv) {
     const char *wav_path = argc > 1 ? argv[1] : "record.wav";
     session_t *sess = session_create();
     if (!sess) { fprintf(stderr, "session_create failed\n"); return 1; }
-    pipeline_t *pipe = pipeline_create(sess, 1);
-    if (!pipe) { fprintf(stderr, "pipeline_create failed\n"); session_destroy(sess); return 1; }
 
     factory_register_node_type("source_mic", (node_create_fn)source_mic_create, source_mic_destroy_fn);
     factory_register_node_type("source_file", (node_create_fn)source_file_create, source_file_destroy_fn);
@@ -35,32 +36,35 @@ int main(int argc, char **argv) {
     factory_register_node_type("filter_mixer", (node_create_fn)mixer_create, mixer_destroy_fn);
     factory_register_node_type("sink_speaker", (node_create_fn)sink_speaker_create, sink_speaker_destroy_fn);
 
+    /* Pipeline 1: mic -> spk, mix_target=speaker */
+    pipeline_t *pipe1 = pipeline_create(sess, 1);
+    if (!pipe1) { fprintf(stderr, "pipeline_create 1 failed\n"); session_destroy(sess); return 1; }
+    pipeline_set_mix_target(pipe1, "speaker");
+
     node_config_t mic_cfg = { .sample_rate = 16000, .channels = 1 };
-    node_config_t file_cfg = { .path = wav_path };
-    node_config_t resamp_cfg = { .sample_rate = 48000 };
-    node_config_t mix_cfg = { .input_count = 2 };
     node_config_t spk_cfg = { .sample_rate = 48000, .channels = 1 };
+    pipeline_add_node(pipe1, "source_mic", "mic", &mic_cfg);
+    pipeline_add_node(pipe1, "sink_speaker", "spk", &spk_cfg);
+    pipeline_link(pipe1, "mic", 0, "spk", 0);
 
-    if (pipeline_add_node(pipe, "source_mic", "mic", &mic_cfg) != 0) goto fail;
-    if (pipeline_add_node(pipe, "source_file", "file", &file_cfg) != 0) goto fail;
-    if (pipeline_add_node(pipe, "filter_resampler", "resamp", &resamp_cfg) != 0) goto fail;
-    if (pipeline_add_node(pipe, "filter_mixer", "mix", &mix_cfg) != 0) goto fail;
-    if (pipeline_add_node(pipe, "sink_speaker", "spk", &spk_cfg) != 0) goto fail;
+    /* Pipeline 2: file -> spk, mix_target=speaker (将与 1 自动合并) */
+    pipeline_t *pipe2 = pipeline_create(sess, 2);
+    if (!pipe2) { fprintf(stderr, "pipeline_create 2 failed\n"); session_destroy(sess); return 1; }
+    pipeline_set_mix_target(pipe2, "speaker");
 
-    pipeline_link(pipe, "mic", 0, "resamp", 0);
-    pipeline_link(pipe, "resamp", 0, "mix", 0);
-    pipeline_link(pipe, "file", 0, "mix", 1);
-    pipeline_link(pipe, "mix", 0, "spk", 0);
+    node_config_t file_cfg = { .path = wav_path };
+    pipeline_add_node(pipe2, "source_file", "file", &file_cfg);
+    pipeline_add_node(pipe2, "sink_speaker", "spk", &spk_cfg);
+    pipeline_link(pipe2, "file", 0, "spk", 0);
 
-    printf("Mix %s + mic -> speaker (15 sec)...\n", wav_path);
+    printf(" mix_target demo: start pipe1 (mic), then pipe2 (file) -> auto merge to mixer\n");
     session_start_pipeline(sess, 1);
-    sleep(15);
+    sleep(3);
+    session_start_pipeline(sess, 2);
+    sleep(12);
     session_stop_pipeline(sess, 1);
-    { struct timespec ts = { 0, 200000000 }; nanosleep(&ts, NULL); }
+    { struct timespec ts = { 0, 500000000 }; nanosleep(&ts, NULL); }
     session_destroy(sess);
     printf("Done.\n");
     return 0;
-fail:
-    session_destroy(sess);
-    return 1;
 }

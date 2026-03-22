@@ -1,4 +1,4 @@
-# 优先 paplay 管道（与 paplay 完全同路径，WSL 下最可靠）；否则 libpulse -> libasound
+# 优先 paplay 管道；否则 libpulse -> libasound (HAL)。TinyALSA 作为后备。
 add_library(sink_speaker STATIC sink_speaker.c)
 target_include_directories(sink_speaker PUBLIC ${CMAKE_SOURCE_DIR}/include)
 if(UNIX AND NOT APPLE)
@@ -19,7 +19,10 @@ if(UNIX AND NOT APPLE)
       if(ASOUND_LIB)
         target_compile_definitions(sink_speaker PRIVATE USE_ALSA=1)
         target_link_libraries(sink_speaker PUBLIC media_core ${ASOUND_LIB})
-        message(STATUS "sink_speaker: using libasound")
+        if(TARGET hal_alsa)
+          target_link_libraries(sink_speaker PUBLIC hal_alsa)
+        endif()
+        message(STATUS "sink_speaker: using libasound (HAL)")
       else()
         target_link_libraries(sink_speaker PUBLIC media_core tinyalsa)
         message(STATUS "sink_speaker: using TinyALSA")

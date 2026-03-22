@@ -18,6 +18,12 @@ typedef struct reg {
 static reg_t g_regs[MAX_TYPES];
 static int g_num_regs;
 
+int factory_register_plugin(const plugin_descriptor_t *desc, node_create_fn create_fn,
+                            node_destroy_fn destroy_fn) {
+    if (!desc || !create_fn || !destroy_fn || !desc->name) return -1;
+    return factory_register_node_type(desc->name, create_fn, destroy_fn);
+}
+
 int factory_register_node_type(const char *name, node_create_fn create_fn,
                                node_destroy_fn destroy_fn) {
     if (!name || !create_fn || !destroy_fn || g_num_regs >= MAX_TYPES)

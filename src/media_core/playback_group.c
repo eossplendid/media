@@ -10,12 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <pthread.h>
-#endif
 
 #define MAX_SOURCES 8
 
@@ -28,11 +23,7 @@ struct playback_group {
     char *sources[MAX_SOURCES];
     int num_sources;
     int running;
-#ifdef _WIN32
-    CRITICAL_SECTION lock;
-#else
     pthread_mutex_t lock;
-#endif
 };
 
 static void rebuild_pipeline(playback_group_t *pg) {
@@ -85,21 +76,13 @@ playback_group_t* playback_group_create(session_t *session, const playback_group
         pg->output_sample_rate = config->output_sample_rate;
         pg->output_channels = config->output_channels;
     }
-#ifdef _WIN32
-    InitializeCriticalSection(&pg->lock);
-#else
     pthread_mutex_init(&pg->lock, NULL);
-#endif
     return pg;
 }
 
 void playback_group_destroy(playback_group_t *pg) {
     if (!pg) return;
-#ifdef _WIN32
-    EnterCriticalSection(&pg->lock);
-#else
     pthread_mutex_lock(&pg->lock);
-#endif
     pg->running = 0;
     if (pg->pipe) {
         session_detach(pg->session, pg->pipe);
@@ -111,38 +94,21 @@ void playback_group_destroy(playback_group_t *pg) {
         pg->sources[i] = NULL;
     }
     pg->num_sources = 0;
-#ifdef _WIN32
-    LeaveCriticalSection(&pg->lock);
-    DeleteCriticalSection(&pg->lock);
-#else
     pthread_mutex_unlock(&pg->lock);
     pthread_mutex_destroy(&pg->lock);
-#endif
     free(pg);
 }
 
 int playback_group_add_source(playback_group_t *pg, const char *path) {
     if (!pg || !path) return -1;
-#ifdef _WIN32
-    EnterCriticalSection(&pg->lock);
-#else
     pthread_mutex_lock(&pg->lock);
-#endif
     if (pg->num_sources >= MAX_SOURCES) {
-#ifdef _WIN32
-        LeaveCriticalSection(&pg->lock);
-#else
         pthread_mutex_unlock(&pg->lock);
-#endif
         return -1;
     }
     pg->sources[pg->num_sources] = strdup(path);
     if (!pg->sources[pg->num_sources]) {
-#ifdef _WIN32
-        LeaveCriticalSection(&pg->lock);
-#else
         pthread_mutex_unlock(&pg->lock);
-#endif
         return -1;
     }
     pg->num_sources++;
@@ -150,21 +116,13 @@ int playback_group_add_source(playback_group_t *pg, const char *path) {
     rebuild_pipeline(pg);
     if (was_running && pg->pipe)
         session_start_pipeline(pg->session, pg->pipe_id);
-#ifdef _WIN32
-    LeaveCriticalSection(&pg->lock);
-#else
     pthread_mutex_unlock(&pg->lock);
-#endif
     return pg->num_sources - 1;
 }
 
 void playback_group_remove_source(playback_group_t *pg, int source_id) {
     if (!pg || source_id < 0 || source_id >= pg->num_sources) return;
-#ifdef _WIN32
-    EnterCriticalSection(&pg->lock);
-#else
     pthread_mutex_lock(&pg->lock);
-#endif
     free(pg->sources[source_id]);
     for (int i = source_id; i < pg->num_sources - 1; i++)
         pg->sources[i] = pg->sources[i + 1];
@@ -174,52 +132,28 @@ void playback_group_remove_source(playback_group_t *pg, int source_id) {
     rebuild_pipeline(pg);
     if (was_running && pg->pipe)
         session_start_pipeline(pg->session, pg->pipe_id);
-#ifdef _WIN32
-    LeaveCriticalSection(&pg->lock);
-#else
     pthread_mutex_unlock(&pg->lock);
-#endif
 }
 
 int playback_group_start(playback_group_t *pg) {
     if (!pg) return -1;
-#ifdef _WIN32
-    EnterCriticalSection(&pg->lock);
-#else
     pthread_mutex_lock(&pg->lock);
-#endif
     if (pg->num_sources == 0 || !pg->pipe) {
-#ifdef _WIN32
-        LeaveCriticalSection(&pg->lock);
-#else
         pthread_mutex_unlock(&pg->lock);
-#endif
         return -1;
     }
     pg->running = 1;
     int r = session_start_pipeline(pg->session, pg->pipe_id);
-#ifdef _WIN32
-    LeaveCriticalSection(&pg->lock);
-#else
     pthread_mutex_unlock(&pg->lock);
-#endif
     return r;
 }
 
 void playback_group_stop(playback_group_t *pg) {
     if (!pg) return;
-#ifdef _WIN32
-    EnterCriticalSection(&pg->lock);
-#else
     pthread_mutex_lock(&pg->lock);
-#endif
     pg->running = 0;
     session_stop_pipeline(pg->session, pg->pipe_id);
-#ifdef _WIN32
-    LeaveCriticalSection(&pg->lock);
-#else
     pthread_mutex_unlock(&pg->lock);
-#endif
 }
 
 int playback_group_source_count(const playback_group_t *pg) {

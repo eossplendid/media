@@ -14,11 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <unistd.h>
-#endif
 
 extern media_node_t* source_file_create(const char *, const node_config_t *);
 extern void source_file_destroy_fn(media_node_t *);
@@ -30,6 +26,8 @@ extern media_node_t* decoder_mp3_create(const char *, const node_config_t *);
 extern void decoder_mp3_destroy_fn(media_node_t *);
 extern media_node_t* resampler_create(const char *, const node_config_t *);
 extern void resampler_destroy_fn(media_node_t *);
+extern media_node_t* filter_format_converter_create(const char *, const node_config_t *);
+extern void filter_format_converter_destroy_fn(media_node_t *);
 
 typedef enum { FMT_WAV, FMT_MP3, FMT_OGG, FMT_UNKNOWN } detected_format_t;
 
@@ -68,7 +66,8 @@ int main(int argc, char **argv) {
 
     factory_register_node_type("source_file", (node_create_fn)source_file_create, source_file_destroy_fn);
     factory_register_node_type("sink_speaker", (node_create_fn)sink_speaker_create, sink_speaker_destroy_fn);
-    factory_register_node_type("filter_resampler", (node_create_fn)resampler_create, resampler_destroy_fn);  /* pipeline_prepare 自动插入用 */
+    factory_register_node_type("filter_resampler", (node_create_fn)resampler_create, resampler_destroy_fn);
+    factory_register_node_type("filter_format_converter", (node_create_fn)filter_format_converter_create, filter_format_converter_destroy_fn);
 
     node_config_t file_cfg = { .path = path };
     node_config_t spk_cfg = { .sample_rate = 48000, .channels = 1 };
@@ -100,18 +99,10 @@ int main(int argc, char **argv) {
     session_start_pipeline(sess, 1);
     /* Pipeline runs in thread; stops when source hits EOF (returns 1) */
     while (pipeline_is_running(pipe)) {
-#ifdef _WIN32
-        Sleep(100);
-#else
         usleep(100000);
-#endif
     }
     /* 等待 ALSA 缓冲区播放完毕（WSL 下 drain 可能不可靠，额外等待） */
-#ifdef _WIN32
-    Sleep(500);
-#else
     usleep(500000);
-#endif
     session_destroy(sess);
     if (media_debug_enabled()) fprintf(stderr, "[file_to_speaker] pipeline stopped\n");
     printf("Done.\n");

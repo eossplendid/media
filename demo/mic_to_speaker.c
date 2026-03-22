@@ -7,12 +7,8 @@
 #include "media_core/factory.h"
 #include "media_core/link.h"
 #include <stdio.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <unistd.h>
 #include <time.h>
-#endif
 
 extern media_node_t* source_mic_create(const char *, const node_config_t *);
 extern void source_mic_destroy_fn(media_node_t *);
@@ -37,17 +33,9 @@ int main(void) {
 
     printf("Mic -> Speaker (10 sec)...\n");
     session_start_pipeline(sess, 1);
-#ifdef _WIN32
-    Sleep(10000);
-#else
     sleep(10);
-#endif
     session_stop_pipeline(sess, 1);
-#ifdef _WIN32
-    Sleep(200);
-#else
     { struct timespec ts = { 0, 200000000 }; nanosleep(&ts, NULL); }
-#endif
     session_destroy(sess);
     printf("Done.\n");
     return 0;

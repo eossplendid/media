@@ -9,13 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <unistd.h>
 #include <time.h>
 #include <limits.h>
-#endif
 
 extern media_node_t* source_mic_create(const char *, const node_config_t *);
 extern void source_mic_destroy_fn(media_node_t *);
@@ -60,23 +56,11 @@ int main(int argc, char **argv) {
     }
     if (use_pull) pipeline_set_mode(pipe, PIPELINE_MODE_PULL);
 
-#ifndef _WIN32
     { char cwd[PATH_MAX]; if (getcwd(cwd, sizeof(cwd))) printf("Recording to %s/%s (5 seconds)...\n", cwd, out_path); else printf("Recording to %s (5 seconds)...\n", out_path); }
-#else
-    printf("Recording to %s (5 seconds)...\n", out_path);
-#endif
     session_start_pipeline(sess, 1);
-#ifdef _WIN32
-    Sleep(5000);
-#else
     sleep(5);
-#endif
     session_stop_pipeline(sess, 1);
-#ifdef _WIN32
-    Sleep(200);
-#else
     { struct timespec ts = { 0, 200 * 1000 * 1000 }; nanosleep(&ts, NULL); }
-#endif
     /* session_destroy 会销毁所有 pipeline，勿再单独调用 pipeline_destroy */
     session_destroy(sess);
     printf("Done.\n");
