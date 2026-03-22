@@ -3,6 +3,10 @@
  *
  * Node type registration and create by name.
  *
+ * 本模块实现节点类型的注册与按名创建：
+ *   - 插件通过 factory_register_node_type 注册 create/destroy 回调
+ *   - pipeline 添加节点时通过 factory_create_node 按类型名创建实例
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -25,7 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define MAX_TYPES 24
+#define MAX_TYPES 24  /* 最大注册节点类型数 */
 
 typedef struct reg
 {
@@ -37,6 +41,7 @@ typedef struct reg
 static reg_t g_regs[MAX_TYPES];
 static int g_num_regs;
 
+/* 通过 plugin_descriptor 注册节点类型（内部转为 register_node_type） */
 int factory_register_plugin(const plugin_descriptor_t *desc, node_create_fn create_fn,
                             node_destroy_fn destroy_fn)
 {
@@ -44,6 +49,7 @@ int factory_register_plugin(const plugin_descriptor_t *desc, node_create_fn crea
   return factory_register_node_type(desc->name, create_fn, destroy_fn);
 }
 
+/* 注册节点类型：同名可覆盖，满则返回 -1 */
 int factory_register_node_type(const char *name, node_create_fn create_fn,
                                node_destroy_fn destroy_fn)
 {
@@ -67,6 +73,7 @@ int factory_register_node_type(const char *name, node_create_fn create_fn,
   return 0;
 }
 
+/* 按类型名创建节点实例，未注册类型返回 NULL */
 media_node_t *factory_create_node(const char *type_name, const char *instance_id,
                                   const node_config_t *config)
 {
@@ -90,6 +97,7 @@ void factory_unregister_node_type(const char *name)
     }
 }
 
+/* 根据节点 desc->name 查找注册的 destroy_fn 并调用 */
 void factory_destroy_node(media_node_t *node)
 {
   if (!node) return;

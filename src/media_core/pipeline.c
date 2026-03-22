@@ -3,6 +3,12 @@
  *
  * Pipeline create/add_node/start/stop/destroy and process loop.
  *
+ * 本模块实现媒体流水线核心逻辑：
+ *   - 节点增删、链接建立
+ *   - 拓扑排序与执行模式（Push/Pull）
+ *   - 能力协商：自动插入 resampler/frame_adapter/format_converter
+ *   - 主循环：按 topo 顺序驱动各节点 process
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -31,6 +37,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+/* 根据 node_id 查找节点在 pipe 中的下标，找不到返回 -1 */
 static int find_node_index(const pipeline_t *pipe, const char *node_id)
 {
   for (int i = 0; i < pipe->num_nodes; i++)
@@ -39,6 +46,7 @@ static int find_node_index(const pipeline_t *pipe, const char *node_id)
   return -1;
 }
 
+/* 创建流水线实例，关联 session 并自动 attach */
 pipeline_t *pipeline_create(session_t *session, pipeline_id_t id)
 {
   pipeline_t *pipe = (pipeline_t *)calloc(1, sizeof(pipeline_t));
@@ -50,6 +58,7 @@ pipeline_t *pipeline_create(session_t *session, pipeline_id_t id)
   return pipe;
 }
 
+/* 向流水线添加节点：按类型名创建，配置端口数，禁止 duplicate id */
 int pipeline_add_node(pipeline_t *pipe, const char *node_type_name,
                       const char *node_id, const node_config_t *config)
 {
@@ -82,11 +91,12 @@ int pipeline_add_node(pipeline_t *pipe, const char *node_type_name,
   return 0;
 }
 
-/* Topological order: nodes with no incoming links first, then by dependency */
+/* 拓扑排序：按入度为 0 优先，每次选一个后更新下游入度，结果写入 order[] */
 static int topo_order(const pipeline_t *pipe, int *order)
 {
-  int in_degree[MAX_NODES];
+  int in_degree[MAX_NODES]; /* 每节点入边数 */
   memset(in_degree, 0, sizeof(in_degree));
+  /* 根据 link 计算各节点入度 */
   for (int i = 0; i < pipe->num_links; i++)
     {
       const link_entry_t *e = &pipe->links[i];
@@ -101,6 +111,7 @@ static int topo_order(const pipeline_t *pipe, int *order)
       if (to_idx >= 0) in_degree[to_idx]++;
     }
   int out = 0;
+  /* Kahn 算法：每轮选入度为 0 的节点，加入拓扑序并更新后继入度 */
   for (int round = 0; round < pipe->num_nodes; round++)
     {
       int chosen = -1;
@@ -138,11 +149,11 @@ static int topo_order(const pipeline_t *pipe, int *order)
   return out;
 }
 
-/* Copy upstream output buffers to this node's input buffers per links */
+/* 按 link 把上游输出缓冲拷贝到本节点输入端口（由 process 前调用） */
 static void feed_inputs(pipeline_t *pipe, media_node_t *node,
                         const char *node_id);
 
-/* Sink node: no outgoing links */
+/* 判断是否 sink 节点：无任何出边（即无 link 的 from_id 指向该节点） */
 static int is_sink_node(const pipeline_t *pipe, int node_idx)
 {
   const char *nid = pipe->node_ids[node_idx];
@@ -154,10 +165,10 @@ static int is_sink_node(const pipeline_t *pipe, int node_idx)
   return 1;
 }
 
-/* Pull mode: recursive upstream pull, ensure upstream produce before process */
+/* Pull 模式：从 sink 递归向上游拉取；先递归上游 produce，再 process 本节点 */
 static int pull_chain(pipeline_t *pipe, int to_idx)
 {
-  if (pipe->pull_processed[to_idx]) return 0;
+  if (pipe->pull_processed[to_idx]) return 0; /* 已处理则跳过 */
   media_node_t *node = pipe->nodes[to_idx];
   const char *nid = pipe->node_ids[to_idx];
   for (int i = 0; i < pipe->num_links; i++)
@@ -167,10 +178,11 @@ static int pull_chain(pipeline_t *pipe, int to_idx)
       int from_idx = find_node_index(pipe, e->from_id);
       if (from_idx >= 0)
         {
-          int r = pull_chain(pipe, from_idx);
+          int r = pull_chain(pipe, from_idx); /* 递归拉取上游 */
           if (r != 0) return r;
         }
     }
+  /* 清空输出端口，feed_inputs 填充输入，再 process */
   for (int p = 0; p < node->num_output_ports; p++)
     node->output_buffers[p] = NULL;
   feed_inputs(pipe, node, nid);
@@ -183,6 +195,7 @@ static int pull_chain(pipeline_t *pipe, int to_idx)
   return 0;
 }
 
+/* 根据 link 将上游 output_buffers 拷贝到本节点 input_buffers */
 static void feed_inputs(pipeline_t *pipe, media_node_t *node,
                        const char *node_id)
 {
@@ -209,6 +222,7 @@ static void feed_inputs(pipeline_t *pipe, media_node_t *node,
     }
 }
 
+/* 设置 Push（源驱动）或 Pull（宿驱动）模式 */
 void pipeline_set_mode(pipeline_t *pipe, pipeline_mode_t mode)
 {
   if (pipe) pipe->mode = mode;
@@ -219,11 +233,13 @@ pipeline_mode_t pipeline_get_mode(const pipeline_t *pipe)
   return pipe ? pipe->mode : PIPELINE_MODE_PUSH;
 }
 
+/* 停止主循环（设置 running=0，线程会退出） */
 void pipeline_stop(pipeline_t *pipe)
 {
   if (pipe) pipe->running = 0;
 }
 
+/* 查询流水线是否正在运行 */
 int pipeline_is_running(const pipeline_t *pipe)
 {
   return pipe && pipe->running;
@@ -234,6 +250,7 @@ pipeline_id_t pipeline_get_id(const pipeline_t *pipe)
   return pipe ? pipe->id : 0;
 }
 
+/* 设置混音目标名：多 pipeline 共享同一 mix_target 时 session 会合并 */
 void pipeline_set_mix_target(pipeline_t *pipe, const char *mix_target)
 {
   if (!pipe) return;
@@ -267,17 +284,18 @@ static void get_upstream_output_caps(const pipeline_t *pipe,
   node->desc->ops->get_caps(node, from_port, out_caps);
 }
 
-/* prepare: caps negotiation, auto-insert filter_frame_adapter when frame_ms
-   mismatches. Requires "filter_frame_adapter" node type registered. */
+/* prepare：能力协商，依次检查 sample_rate/frame_ms/format，不匹配时自动插入
+   resampler/frame_adapter/format_converter。需事先注册对应节点类型。 */
 int pipeline_prepare(pipeline_t *pipe)
 {
   if (!pipe || pipe->running) return -1;
 
+  /* 默认 base_tick_ms=10ms，后续根据最小 frame_ms 调整 */
   pipe->base_tick_ms = 10;
   for (int i = 0; i < pipe->num_nodes; i++)
     pipe->node_tick_period[i] = 1;
 
-  /* First pass: insert filter_resampler when sample_rate mismatch */
+  /* 第一遍：采样率不匹配时在 link 间插入 filter_resampler */
   int num_links = pipe->num_links;
   for (int i = 0; i < num_links; i++)
     {
@@ -292,7 +310,7 @@ int pipeline_prepare(pipeline_t *pipe)
       media_node_t *to_node = pipe->nodes[to_idx];
       if (to_node->desc &&
           strcmp(to_node->desc->name, "filter_resampler") == 0)
-        continue;
+        continue; /* resampler 接受任意输入，不检查 */
       uint32_t req_rate = pipe->node_configs[to_idx].sample_rate;
 
       if (req_rate != 0 && up_caps.sample_rate != 0 &&
@@ -300,7 +318,7 @@ int pipeline_prepare(pipeline_t *pipe)
         {
           if (pipe->num_nodes >= MAX_NODES) return -1;
           if (pipe->num_links >= MAX_LINKS - 1) return -1;
-
+          /* 创建 resampler 节点，替换原 link 为 from->resampler->to */
           char resamp_id[64];
           snprintf(resamp_id, sizeof(resamp_id), "_resampler_%d", i);
           node_config_t resamp_cfg = {0};
@@ -337,7 +355,7 @@ int pipeline_prepare(pipeline_t *pipe)
         }
     }
 
-  /* Second pass: insert filter_frame_adapter when frame_ms mismatch */
+  /* 第二遍：frame_ms 不匹配时插入 filter_frame_adapter（上游必须能整除下游） */
   num_links = pipe->num_links;
   for (int i = 0; i < num_links; i++)
     {
@@ -352,12 +370,13 @@ int pipeline_prepare(pipeline_t *pipe)
       media_node_t *to_node = pipe->nodes[to_idx];
       if (to_node->desc &&
           strcmp(to_node->desc->name, "filter_frame_adapter") == 0)
-        continue;
+        continue; /* adapter 接受任意输入，不检查 */
       uint32_t req_frame = pipe->node_configs[to_idx].frame_ms;
 
       if (req_frame != 0 && up_caps.frame_ms != 0 &&
           up_caps.frame_ms != req_frame)
         {
+          /* 上游 frame_ms 必须能整除 req_frame，否则无法适配 */
           if (up_caps.frame_ms % req_frame != 0)
             {
               fprintf(stderr,
@@ -407,7 +426,7 @@ int pipeline_prepare(pipeline_t *pipe)
         }
     }
 
-  /* Third pass: insert filter_format_converter when format mismatch */
+  /* 第三遍：格式不匹配时插入 filter_format_converter */
   num_links = pipe->num_links;
   for (int i = 0; i < num_links; i++)
     {
@@ -422,7 +441,7 @@ int pipeline_prepare(pipeline_t *pipe)
       media_node_t *to_node = pipe->nodes[to_idx];
       if (to_node->desc &&
           strcmp(to_node->desc->name, "filter_format_converter") == 0)
-        continue;
+        continue; /* 已是 converter，不检查 */
       uint32_t req_format = pipe->node_configs[to_idx].format;
 
       if (req_format != 0 && up_caps.format != MEDIA_FORMAT_UNKNOWN &&
@@ -467,7 +486,7 @@ int pipeline_prepare(pipeline_t *pipe)
         }
     }
 
-  /* Compute base_tick_ms and node_tick_period */
+  /* 计算 base_tick_ms：取所有输出 frame_ms 中的最小值 */
   uint32_t min_frame = 0;
   for (int i = 0; i < pipe->num_nodes; i++)
     {
@@ -489,6 +508,7 @@ int pipeline_prepare(pipeline_t *pipe)
     }
   if (min_frame != 0) pipe->base_tick_ms = min_frame;
 
+  /* 计算 node_tick_period：该节点每 period 个 tick 运行一次（如 20ms 时 period=2） */
   for (int i = 0; i < pipe->num_nodes; i++)
     {
       media_caps_t caps;
@@ -512,13 +532,14 @@ int pipeline_prepare(pipeline_t *pipe)
   return 0;
 }
 
+/* 启动流水线：prepare、topo 排序、init 各节点、进入主循环（阻塞） */
 int pipeline_start(pipeline_t *pipe)
 {
   if (!pipe || pipe->running || pipe->num_nodes == 0) return -1;
   pipeline_prepare(pipe);
   int order[MAX_NODES];
   int n = topo_order(pipe, order);
-  if (n != pipe->num_nodes) return -1;
+  if (n != pipe->num_nodes) return -1; /* 有环则 topo 失败 */
 
   if (media_debug_enabled())
     {
@@ -529,6 +550,7 @@ int pipeline_start(pipeline_t *pipe)
       fprintf(stderr, "\n");
     }
 
+  /* 初始化所有节点 */
   for (int i = 0; i < pipe->num_nodes; i++)
     {
       media_node_t *node = pipe->nodes[i];
@@ -550,6 +572,7 @@ int pipeline_start(pipeline_t *pipe)
   pipe->running = 1;
   int tick = 0;
 
+  /* Pull 模式：每轮从各 sink 递归拉取，拉取完后释放 output_buffers */
   if (pipe->mode == PIPELINE_MODE_PULL)
     {
       while (pipe->running)
@@ -580,6 +603,7 @@ int pipeline_start(pipeline_t *pipe)
             }
         }
     }
+  /* Push 模式：按 topo 顺序推进，tick 控制不同 frame_ms 节点的运行频率 */
   else
     {
       while (pipe->running)
@@ -590,7 +614,7 @@ int pipeline_start(pipeline_t *pipe)
               int idx = order[i];
               int period = pipe->node_tick_period[idx];
               if (period > 0 && (tick % period) != 0)
-                continue;
+                continue; /* 本 tick 该节点不运行（如 period=2 时奇数 tick 跳过） */
               media_node_t *node = pipe->nodes[idx];
               const char *nid = pipe->node_ids[idx];
               for (int p = 0; p < node->num_output_ports; p++)
@@ -614,6 +638,7 @@ int pipeline_start(pipeline_t *pipe)
           if (media_debug_enabled() && tick > 0 && tick % 100 == 0)
             fprintf(stderr, "[pipeline] tick=%d\n", tick);
           tick++;
+          /* 每 tick 结束后释放所有 output_buffers */
           for (int i = 0; i < pipe->num_nodes; i++)
             {
               media_node_t *node = pipe->nodes[i];
@@ -631,6 +656,7 @@ int pipeline_start(pipeline_t *pipe)
   return 0;
 }
 
+/* 设置指定节点的音量（需节点支持 set_volume） */
 int pipeline_set_node_volume(pipeline_t *pipe, const char *node_id, float gain)
 {
   if (!pipe || !node_id) return -1;
@@ -643,6 +669,7 @@ int pipeline_set_node_volume(pipeline_t *pipe, const char *node_id, float gain)
   return node->desc->ops->set_volume(node, gain);
 }
 
+/* 销毁流水线：先 stop，flush 各节点，释放所有节点和 link */
 void pipeline_destroy(pipeline_t *pipe)
 {
   if (!pipe) return;

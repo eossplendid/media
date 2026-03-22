@@ -3,6 +3,10 @@
  *
  * Helpers for buffer allocation and node port handling.
  *
+ * 本模块提供节点间数据传递的基础设施：
+ *   - media_buffer_alloc/free：通用 media_buffer 分配与释放
+ *   - media_caps_from_format：根据格式快速填充 media_caps_t
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -25,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* 分配 media_buffer：内部 malloc data，带 release 回调可自定义释放逻辑 */
 media_buffer_t *media_buffer_alloc(size_t size)
 {
   media_buffer_t *buf = (media_buffer_t *)calloc(1, sizeof(media_buffer_t));
@@ -40,6 +45,7 @@ media_buffer_t *media_buffer_alloc(size_t size)
   return buf;
 }
 
+/* 释放 media_buffer：若有 release 回调则调用，否则 free(data) */
 void media_buffer_free(media_buffer_t *buf)
 {
   if (!buf) return;
@@ -54,6 +60,7 @@ void media_buffer_free(media_buffer_t *buf)
   free(buf);
 }
 
+/* 根据 sample_rate/channels/format 填充 caps，并计算 bytes_per_sample */
 void media_caps_from_format(media_caps_t *caps, uint32_t sample_rate,
                             uint32_t channels, media_format_t format)
 {

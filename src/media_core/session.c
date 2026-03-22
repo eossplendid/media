@@ -3,6 +3,11 @@
  *
  * Multi-pipeline management and per-pipeline thread.
  *
+ * 本模块管理多个流水线及各自的运行线程：
+ *   - 每个 pipeline 在独立线程中运行 pipeline_start
+ *   - 相同 mix_target 的 pipeline 会合并为 mixer->sink 拓扑
+ *   - session_start_pipeline 启动前检查 mix_target 冲突并自动合并
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -30,16 +35,17 @@
 #include <stdio.h>
 #include <pthread.h>
 
-#define MAX_PIPELINES 16
+#define MAX_PIPELINES 16  /* 单 session 最大 pipeline 数 */
 
 struct session
 {
   pipeline_t *pipelines[MAX_PIPELINES];
   int num_pipelines;
   pthread_t threads[MAX_PIPELINES];
-  int thread_used[MAX_PIPELINES];
+  int thread_used[MAX_PIPELINES];  /* 对应 slot 是否已创建线程 */
 };
 
+/* 线程入口：阻塞执行 pipeline_start */
 static void *pipeline_thread_fn(void *arg)
 {
   pipeline_t *pipe = (pipeline_t *)arg;
@@ -47,18 +53,21 @@ static void *pipeline_thread_fn(void *arg)
   return NULL;
 }
 
+/* 创建 session 实例 */
 session_t *session_create(void)
 {
   session_t *s = (session_t *)calloc(1, sizeof(session_t));
   return s;
 }
 
+/* 将 pipeline 加入 session（通常由 pipeline_create 内部调用） */
 void session_attach(session_t *session, pipeline_t *pipe)
 {
   if (!session || !pipe || session->num_pipelines >= MAX_PIPELINES) return;
   session->pipelines[session->num_pipelines++] = pipe;
 }
 
+/* 按 id 查找 pipeline */
 pipeline_t *session_get_pipeline(session_t *session, pipeline_id_t id)
 {
   if (!session) return NULL;
@@ -83,16 +92,15 @@ pipeline_id_t session_get_pipeline_by_mix_target(session_t *session,
   return 0;
 }
 
-/* Merge pipe_new into pipe_old when both target same mix bus.
-   Extracts source nodes from both, builds: srcA, srcB, ... -> mixer -> sink.
-   Supports simple topologies; intermediate nodes preserved per source chain. */
+/* 合并两个同 mix_target 的 pipeline：提取源节点，构建 a_*/b_* -> mixer -> sink
+   中间节点（resampler 等）保留在各源链中 */
 static int merge_pipelines_for_mix(session_t *session, pipeline_t *pipe_old,
                                    pipeline_t *pipe_new)
 {
   pipeline_id_t keep_id = pipeline_get_id(pipe_old);
   const char *mt = pipeline_get_mix_target(pipe_old);
 
-  /* Find sink config from pipe_old */
+  /* 从 pipe_old 中找 sink 节点（无出边）及其配置 */
 
   int sink_idx = -1;
   node_config_t spk_cfg = { .sample_rate = 48000, .channels = 1 };
@@ -116,7 +124,7 @@ static int merge_pipelines_for_mix(session_t *session, pipeline_t *pipe_old,
         }
     }
 
-  /* Collect feeder node ids for each pipeline */
+  /* 收集两个 pipeline 中直接连到 sink 的 feeder 节点 id */
 
   char *feeders_old[MAX_NODES];
   int n_old = 0;
@@ -242,6 +250,7 @@ static int merge_pipelines_for_mix(session_t *session, pipeline_t *pipe_old,
   return session_start_pipeline(session, keep_id);
 }
 
+/* 启动 pipeline：若 mix_target 冲突则先合并，再创建线程执行 pipeline_start */
 int session_start_pipeline(session_t *session, pipeline_id_t id)
 {
   pipeline_t *pipe = session_get_pipeline(session, id);
@@ -276,12 +285,14 @@ int session_start_pipeline(session_t *session, pipeline_id_t id)
   return r == 0 ? 0 : -1;
 }
 
+/* 停止指定 pipeline（设置 running=0，线程会退出） */
 void session_stop_pipeline(session_t *session, pipeline_id_t id)
 {
   pipeline_t *pipe = session_get_pipeline(session, id);
   if (pipe) pipeline_stop(pipe);
 }
 
+/* 从 session 分离 pipeline：stop、join 线程、从数组移除 */
 int session_detach(session_t *session, pipeline_t *pipe)
 {
   if (!session || !pipe) return -1;
@@ -308,6 +319,7 @@ int session_detach(session_t *session, pipeline_t *pipe)
   return 0;
 }
 
+/* 销毁 session：stop 并 join 所有线程，销毁所有 pipeline */
 void session_destroy(session_t *session)
 {
   if (!session) return;

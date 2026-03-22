@@ -3,6 +3,12 @@
  *
  * Audio focus stack: GAIN/TRANSIENT/DUCKABLE.
  *
+ * 本模块实现音频焦点栈，支持多 pipeline 竞争焦点：
+ *   - GAIN：完全占有，其他静音
+ *   - TRANSIENT：短暂打断
+ *   - DUCKABLE：可被压低
+ *   栈顶为当前焦点持有者，apply_focus 根据栈状态调整各 pipeline 音量
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -27,7 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_FOCUS_STACK 8
+#define MAX_FOCUS_STACK 8  /* 最大焦点栈深度 */
 
 typedef struct
 {
@@ -48,6 +54,7 @@ static void apply_focus(session_t *session)
   (void)pipe;
 }
 
+/* 请求焦点：若已存在则更新类型并移至栈顶，否则压栈 */
 int audio_focus_request(session_t *session, pipeline_id_t id,
                        audio_focus_type_t type)
 {
@@ -75,6 +82,7 @@ int audio_focus_request(session_t *session, pipeline_id_t id,
   return 0;
 }
 
+/* 放弃焦点：从栈中移除该 pipeline，并重新 apply_focus */
 void audio_focus_abandon(session_t *session, pipeline_id_t id)
 {
   if (!session) return;

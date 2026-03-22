@@ -3,6 +3,10 @@
  *
  * Config getter implementation for node_config_t struct and kv extension.
  *
+ * 本模块提供统一的配置读取接口，支持 node_config_t 中的常用字段：
+ *   - config_get_uint32：sample_rate、channels、frame_ms、format 等
+ *   - config_get_string：device、path 等
+ *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -44,6 +48,7 @@ uint32_t config_get_uint32(const void *config, const char *key,
   return default_val;
 }
 
+/* 从 node_config_t 按 key 读取字符串，未设置时返回 default_val */
 const char *config_get_string(const void *config, const char *key,
                               const char *default_val)
 {
